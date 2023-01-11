@@ -32,7 +32,7 @@ runs:
         make
         sudo make install
 
-        pip3 install git+https://github.com/SpamExperts/pyzor.git
+        python3 -m pip install https://github.com/SpamExperts/pyzor/archive/refs/heads/master.zip
 
       shell: bash
 
