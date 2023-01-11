@@ -7,11 +7,12 @@ runs:
       run: |
         python -m pip install "https://github.com/SpamExperts/pyzor/archive/refs/heads/master.zip"
         export PYSCRIPT=`which pyzor`
-        export PYBIN=`which python`
-        export PYBASE=$(dirname "$PYBIN")
+        export PYSCRIPTW=`cmd '/c where pyzor'`
+        export PYBINW=`cmd '/c where python'`
+        export PYBASE=$(dirname $PYBINW)
         mkdir -p "$PYBASE/etc"
-        echo "@python $PYSCRIPT --homedir $PYBASE/etc/pyzor %1 %2 %3 %4 %5 %6 %7 %8 %9" > $PYSCRIPT.bat
-        cat "${PYSCRIPT}.bat"
+        echo "@$PYBINW $PYSCRIPTW --homedir $PYBASE\etc\pyzor %1 %2 %3 %4 %5 %6 %7 %8 %9" > $PYSCRIPT.bat
+        cat "$PYSCRIPT.bat"
       shell: bash
 
     - name: test pyzor install
