@@ -14,9 +14,3 @@ runs:
         echo "@$PYBINW $PYSCRIPTW --homedir $PYBASE\etc\pyzor %1 %2 %3 %4 %5 %6 %7 %8 %9" > $PYSCRIPT.bat
         cat "$PYSCRIPT.bat"
       shell: bash
-
-    - name: test pyzor install
-      run: |
-        pyzor ping
-        pyzor check < t\data]spam]pyzor
-      shell: cmd
