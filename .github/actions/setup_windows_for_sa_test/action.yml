@@ -1,0 +1,10 @@
+name: 'Setup Windows for SpamAssassin build and test'
+description: 'Setup Windows runner for SpamAssassin build and test'
+runs:
+  using: 'composite'
+  steps:
+    - name: install pyzor
+      run: |
+        python3 -m pip install "https://github.com/SpamExperts/pyzor/archive/refs/heads/master.zip"
+        where python3
+        where pyzor
