@@ -32,7 +32,10 @@ runs:
         make
         sudo make install
 
-        python3 -m pip install --prefix /usr/local https://github.com/SpamExperts/pyzor/archive/refs/heads/master.zip
+        python3 -m pip install  https://github.com/SpamExperts/pyzor/archive/refs/heads/master.zip
+        hash -r
+        which pyzor
+        ln -s `which pyzor` /usr/local/bin/pyzor
 
       shell: bash
 
