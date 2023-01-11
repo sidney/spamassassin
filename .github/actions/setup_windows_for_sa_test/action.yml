@@ -10,7 +10,7 @@ runs:
         export PYBIN=`which python`
         export PYBASE=$(dirname "$PYBIN")
         mkdir -p "$PYBASE/etc"
-        echo "@$PYBIN $PYSCRIPT --homedir $PYBASE/etc/pyzor %1 %2 %3 %4 %5 %6 %7 %8 %9" > "${PYSCRIPT}.bat"
+        echo "@$PYBIN $PYSCRIPT --homedir $PYBASE/etc/pyzor %1 %2 %3 %4 %5 %6 %7 %8 %9" > $PYSCRIPT.bat
         cat "${PYSCRIPT}.bat"
       shell: bash
 
