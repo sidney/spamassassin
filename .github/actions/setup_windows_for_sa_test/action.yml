@@ -8,3 +8,4 @@ runs:
         python3 -m pip install "https://github.com/SpamExperts/pyzor/archive/refs/heads/master.zip"
         where python3
         where pyzor
+      shell: cmd
