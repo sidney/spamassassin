@@ -36,3 +36,9 @@ runs:
 
       shell: bash
 
+    - name: debug check pyzor installation
+      run: |
+        pyzor -d ping
+        pyzor -d check < t/data/spam/pyzor
+      shell: bash
+
