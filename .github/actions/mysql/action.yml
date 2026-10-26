@@ -18,5 +18,5 @@ runs:
 
     - name: prepare test config for MySQL
       run: |
-          perl -i.bak -pe 's/^run_(awl_sql_tests|bayes_sql_tests)=n/run_$1=y/;s/^(user_awl|bayes_sql)_dsn=.*$/$1_dsn=dbi:mysql:database=spamassassin;host=localhost/;s/^(user_awl_sql_username|user_awl_sql_password|bayes_sql_username|bayes_sql_password)=.*$/$1=spamassassin/;s/^(bayes_store_module)=.*$/$1=Mail::SpamAssassin::BayesStore::MySQL/' t/config.dist
+          DBDRV=$( [ "$RUNNER_OS" == "Windows" ] && echo MariaDB || echo mysql ) perl -i.bak -pe 's/^run_(awl_sql_tests|bayes_sql_tests)=n/run_$1=y/;s/^(user_awl|bayes_sql)_dsn=.*$/$1_dsn=dbi:$ENV{DBDRV}:database=spamassassin;host=localhost/;s/^(user_awl_sql_username|user_awl_sql_password|bayes_sql_username|bayes_sql_password)=.*$/$1=spamassassin/;s/^(bayes_store_module)=.*$/$1=Mail::SpamAssassin::BayesStore::MySQL/' t/config.dist
       shell: bash
