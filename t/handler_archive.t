@@ -2,6 +2,7 @@
 
 use lib '.'; use lib 't';
 use SATest; sa_t_init("handler_archive");
+use Mail::SpamAssassin::Util;
 
 use Test::More;
 
@@ -36,8 +37,9 @@ plan skip_all => 'Need Archive::Zip for this test' unless HAS_ARCHIVE_ZIP;
 # hermetic default, so also probe a few common install locations.
 sub find_bin {
   my ($exe) = @_;
-  for my $dir (split(/:/, $ENV{PATH}),
-               qw(/usr/bin /usr/local/bin /opt/homebrew/bin /opt/local/bin)) {
+  my $found = Mail::SpamAssassin::Util::find_executable_in_env_path($exe);
+  return $found if $found;
+  for my $dir (qw(/usr/bin /usr/local/bin /opt/homebrew/bin /opt/local/bin)) {
     my $cand = "$dir/$exe";
     return $cand if -x $cand;
   }

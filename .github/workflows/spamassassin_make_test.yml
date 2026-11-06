@@ -101,7 +101,7 @@ jobs:
 
     - name: prepare test config
       run: |
-          perl -i.bak -pe 's/^run_(long_tests|net_tests|dcc_tests|sql_pref_tests)=n/run_$1=y/' t/config.dist
+          perl -i.bak -pe 's/^run_(long_tests|net_tests|ipv6_dns_tests|dcc_tests|sql_pref_tests)=n/run_$1=y/' t/config.dist
       shell: bash
 
     - name: Cache CPAN Modules
@@ -117,7 +117,7 @@ jobs:
       run: |
           perl Makefile.PL
           ${{ env.MAKECMD }} ENABLE_SSL=yes
-          ${{ ( startsWith( matrix.runner, 'macos-' ) && 'sudo -u $USER' ) || '' }} ${{ env.MAKECMD }} test ${{ ((matrix.database != 'none') && 'TEST_FILES="t/*sql*.t"') || (github.event.inputs.tests && format('TEST_FILES="{0}"', github.event.inputs.tests)) }}
+          ${{ ( startsWith( matrix.runner, 'macos-' ) && 'sudo -u $USER' ) || '' }} ${{ env.MAKECMD }} test ${{ ((matrix.database != 'none') && 'TEST_FILES="t/*sql*.t t/sa_txrep_welcomelist_out.t"') || (github.event.inputs.tests && format('TEST_FILES="{0}"', github.event.inputs.tests)) }}
 
     - name: Publish logs as artifacts
       if: ${{ failure() }}

@@ -2,6 +2,7 @@
 
 use lib '.'; use lib 't';
 use SATest; sa_t_init("handler_image_heic");
+use Mail::SpamAssassin::Util;
 
 use Test::More;
 
@@ -16,8 +17,9 @@ use Test::More;
 
 sub find_bin {
   my ($name) = @_;
-  for my $dir (split(/:/, $ENV{PATH}),
-               qw(/usr/bin /usr/local/bin /opt/homebrew/bin /opt/local/bin)) {
+  my $found = Mail::SpamAssassin::Util::find_executable_in_env_path($name);
+  return $found if $found;
+  for my $dir (qw(/usr/bin /usr/local/bin /opt/homebrew/bin /opt/local/bin)) {
     return "$dir/$name" if -x "$dir/$name";
   }
   return undef;

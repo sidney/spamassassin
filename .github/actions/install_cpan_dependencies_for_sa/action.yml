@@ -6,7 +6,7 @@ runs:
     - name: Install cpan modules Linux and macOS
       if: ${{ runner.os != 'Windows' }}
       run: |
-        cpanm -n Module::Install Archive::Zip BSD::Resource BerkeleyDB Compress::Zlib Convert::Ascii85 Crypt::RC4 CryptX DBI DBD::mysql DBD::Pg DB_File Devel::Cycle Digest::SHA Digest::SHA1 Email::Address::XS Encode::Detect Encode::Detect::Detector Geo::IP GeoIP2 GeoIP2::Database::Reader Geography::Countries HTML::Parser HTTP::Cookies HTTP::Daemon HTTP::Date HTTP::Negotiate IO::Socket::INET6 IO::Socket::SSL IP::Country IP::Country::DB_File IP::Geolocation::MMDB LWP::Protocol::https LWP::UserAgent Mail::DKIM File::ShareDir Mail::DMARC::PurePerl Math::Int128 MaxMind::DB::Reader::XS Net::CIDR::Lite Net::DNS Net::DNS::Nameserver Net::LibIDN Net::LibIDN2 Net::Patricia Net::Works::Network NetAddr::IP Params::Validate Sys::Hostname::Long Test::Perl::Critic Test::Pod Test::Pod::Coverage WWW::RobotRules Text::Diff Perl::Critic::Policy::Bangs::ProhibitBitwiseOperators Perl::Critic::Policy::Bangs::ProhibitDebuggingModules List::MoreUtils Perl::Critic::Policy::Perlsecret Perl::Critic::Policy::Compatibility::ProhibitThreeArgumentOpen Perl::Critic::Policy::Lax::ProhibitStringyEval::ExceptForRequire Perl::Critic::Policy::ValuesAndExpressions::PreventSQLInjection Perl::Critic::Policy::ControlStructures::ProhibitReturnInDoBlock || echo "warn: errors installing cpan modules have been ignored"
+        cpanm -n Module::Install Archive::Zip BSD::Resource BerkeleyDB Compress::Zlib Convert::Ascii85 Crypt::RC4 CryptX DBI DBD::mysql DBD::Pg DB_File Devel::Cycle Digest::SHA Digest::SHA1 Email::Address::XS Encode::Detect Encode::Detect::Detector Geo::IP GeoIP2 GeoIP2::Database::Reader Geography::Countries HTML::Parser HTTP::Cookies HTTP::Daemon HTTP::Date HTTP::Negotiate IO::Socket::INET6 IO::Socket::SSL IP::Country IP::Country::DB_File IP::Geolocation::MMDB LWP::Protocol::https LWP::UserAgent Mail::DKIM File::ShareDir Mail::DMARC::PurePerl Math::Int128 MaxMind::DB::Reader::XS Net::CIDR::Lite Net::DNS Net::DNS::Nameserver Net::LibIDN Net::LibIDN2 Net::Patricia Net::Works::Network NetAddr::IP Params::Validate Selenium::Remote::Driver Sys::Hostname::Long Test::Perl::Critic Test::Pod Test::Pod::Coverage WWW::RobotRules Text::Diff Perl::Critic::Policy::Bangs::ProhibitBitwiseOperators Perl::Critic::Policy::Bangs::ProhibitDebuggingModules List::MoreUtils Perl::Critic::Policy::Perlsecret Perl::Critic::Policy::Compatibility::ProhibitThreeArgumentOpen Perl::Critic::Policy::Lax::ProhibitStringyEval::ExceptForRequire Perl::Critic::Policy::ValuesAndExpressions::PreventSQLInjection Perl::Critic::Policy::ControlStructures::ProhibitReturnInDoBlock || echo "warn: errors installing cpan modules have been ignored"
           cpanm Razor2::Client::Agent -n --install-args="DESTINSTALLSITESCRIPT=$HOME/.local/bin" || echo "warn: errors installing Razor2::Client::Agent have been ignored"
           hash -r
           razor-admin --create
@@ -23,15 +23,18 @@ runs:
     - name: Install dependencies and optional modules for full testing on Windows part 1
       if: ${{ runner.os == 'Windows' }}
       run: |
-        cpanm -n Module::Install Archive::Zip BerkeleyDB Compress::Zlib DBI DBD::Pg DB_File DB_File Devel::Cycle Digest::SHA Digest::SHA1 Email::Address::XS Encode::Detect Encode::Detect::Detector Geo::IP GeoIP2 GeoIP2::Database::Reader Geography::Countries HTML::Parser HTTP::Cookies HTTP::Date HTTP::Negotiate IO::Socket::INET6 IO::Socket::SSL IP::Country IP::Country::DB_File IP::Geolocation::MMDB LWP::Protocol::https LWP::UserAgent HTTP::Daemon Mail::DKIM File::ShareDir Mail::DMARC::PurePerl Math::Int128 Net::Works::Network MaxMind::DB::Reader::XS Net::CIDR::Lite Net::DNS Net::DNS::Nameserver Net::LibIDN Net::LibIDN2 Net::Patricia NetAddr::IP Params::Validate Sys::Hostname::Long Test::Perl::Critic Test::Pod Test::Pod::Coverage WWW::RobotRules Text::Diff Perl::Critic::Policy::Bangs::ProhibitBitwiseOperators Perl::Critic::Policy::Bangs::ProhibitDebuggingModules List::MoreUtils Perl::Critic::Policy::Perlsecret Perl::Critic::Policy::Compatibility::ProhibitThreeArgumentOpen Perl::Critic::Policy::Lax::ProhibitStringyEval::ExceptForRequire Perl::Critic::Policy::ValuesAndExpressions::PreventSQLInjection Perl::Critic::Policy::ControlStructures::ProhibitReturnInDoBlock || cmd /c "echo warn: errors installing cpan modules have been ignored"
+        cpanm -n Module::Install Archive::Zip BerkeleyDB Compress::Zlib Convert::Ascii85 Crypt::RC4 CryptX DBI DBD::Pg DB_File DB_File Devel::Cycle Digest::SHA Digest::SHA1 Email::Address::XS Encode::Detect Encode::Detect::Detector Geo::IP GeoIP2 GeoIP2::Database::Reader Geography::Countries HTML::Parser HTTP::Cookies HTTP::Date HTTP::Negotiate IO::Socket::INET6 IO::Socket::SSL IP::Country IP::Country::DB_File IP::Geolocation::MMDB LWP::Protocol::https LWP::UserAgent HTTP::Daemon Mail::DKIM File::ShareDir Mail::DMARC::PurePerl Math::Int128 Net::Works::Network MaxMind::DB::Reader::XS Net::CIDR::Lite Net::DNS Net::DNS::Nameserver Net::LibIDN Net::LibIDN2 Net::Patricia NetAddr::IP Params::Validate Selenium::Remote::Driver Sys::Hostname::Long Test::Perl::Critic Test::Pod Test::Pod::Coverage WWW::RobotRules Text::Diff Perl::Critic::Policy::Bangs::ProhibitBitwiseOperators Perl::Critic::Policy::Bangs::ProhibitDebuggingModules List::MoreUtils Perl::Critic::Policy::Perlsecret Perl::Critic::Policy::Compatibility::ProhibitThreeArgumentOpen Perl::Critic::Policy::Lax::ProhibitStringyEval::ExceptForRequire Perl::Critic::Policy::ValuesAndExpressions::PreventSQLInjection Perl::Critic::Policy::ControlStructures::ProhibitReturnInDoBlock || cmd /c "echo warn: errors installing cpan modules have been ignored"
       shell: cmd
 
     - name: Install dependencies and optional modules for full testing on Windows part 2
       if: ${{ runner.os == 'Windows' }}
       run: |
-        cpanm Razor2::Client::Agent -n --install-args="DESTINSTALLSITESCRIPT=local/bin" || cmd /c "echo warn: errors installing Razor2::Client::Agent have been ignored"
-        razor-admin --create
-        razor-admin --register
+        call cpanm Razor2::Client::Agent -n || cmd /c "echo warn: errors installing Razor2::Client::Agent have been ignored"
+        rem Razor and t/razor2.t look for the identity in %HOME%\.razor
+        set "HOME=%USERPROFILE%"
+        echo HOME=%USERPROFILE%>>"%GITHUB_ENV%"
+        perl -MRazor2::Client::Agent -e "my $a = Razor2::Client::Agent->new(q{razor-admin}) or die $Razor2::Client::Agent::errstr; $a->read_options or die $a->errstr; $a->do_conf or die $a->errstr; exit $a->doit" -- -create || cmd /c "echo warn: razor-admin -create failed, ignored"
+        perl -MRazor2::Client::Agent -e "my $a = Razor2::Client::Agent->new(q{razor-admin}) or die $Razor2::Client::Agent::errstr; $a->read_options or die $a->errstr; $a->do_conf or die $a->errstr; exit $a->doit" -- -register || cmd /c "echo warn: razor-admin -register failed, ignored"
       shell: cmd
 
     - name: Install dependencies and optional modules for full testing on Windows part 3
@@ -52,9 +55,18 @@ runs:
       shell: cmd
 
     - name: Install mail-dmarc.ini
+      if: ${{ runner.os != 'Windows' }}
       run: |
         mkdir -p etc
         perl -MFile::ShareDir=dist_file -MFile::Copy=copy -e \
           'copy(dist_file("Mail-DMARC","mail-dmarc.ini"), "etc/mail-dmarc.ini") or die $!' \
           || echo "warn: could not install mail-dmarc.ini, ignored"
       shell: bash
+
+    # cmd, not bash: Git Bash's own perl comes first in its PATH
+    - name: Install mail-dmarc.ini on Windows
+      if: ${{ runner.os == 'Windows' }}
+      run: |
+        if not exist etc mkdir etc
+        perl -MFile::ShareDir=dist_file -MFile::Copy=copy -e "copy(dist_file(q{Mail-DMARC}, q{mail-dmarc.ini}), q{etc/mail-dmarc.ini}) or die $!" || cmd /c "echo warn: could not install mail-dmarc.ini, ignored"
+      shell: cmd
