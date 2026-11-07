@@ -30,11 +30,16 @@ runs:
       if: ${{ runner.os == 'Windows' }}
       run: |
         call cpanm Razor2::Client::Agent -n || cmd /c "echo warn: errors installing Razor2::Client::Agent have been ignored"
-        rem Razor and t/razor2.t look for the identity in %HOME%\.razor
-        set "HOME=%USERPROFILE%"
-        echo HOME=%USERPROFILE%>>"%GITHUB_ENV%"
-        perl -MRazor2::Client::Agent -e "my $a = Razor2::Client::Agent->new(q{razor-admin}) or die $Razor2::Client::Agent::errstr; $a->read_options or die $a->errstr; $a->do_conf or die $a->errstr; exit $a->doit" -- -create || cmd /c "echo warn: razor-admin -create failed, ignored"
-        perl -MRazor2::Client::Agent -e "my $a = Razor2::Client::Agent->new(q{razor-admin}) or die $Razor2::Client::Agent::errstr; $a->read_options or die $a->errstr; $a->do_conf or die $a->errstr; exit $a->doit" -- -register || cmd /c "echo warn: razor-admin -register failed, ignored"
+        rem Razor and t/razor2.t look for the identity in %HOME%\.razor.  Razor2
+        rem saves an identity only under a -home starting with /, so name the
+        rem same directory without its drive letter.
+        set "HOME=%RUNNER_TEMP%\home"
+        echo HOME=%RUNNER_TEMP%\home>>"%GITHUB_ENV%"
+        mkdir "%HOME%"
+        set "RAZORHOME=%RUNNER_TEMP:~2%\home\.razor"
+        set "RAZORHOME=%RAZORHOME:\=/%"
+        perl -MRazor2::Client::Agent -e "my $a = Razor2::Client::Agent->new(q{razor-admin}) or die $Razor2::Client::Agent::errstr; $a->read_options or die $a->errstr; $a->do_conf or die $a->errstr; exit $a->doit" -- -create "-home=%RAZORHOME%" || cmd /c "echo warn: razor-admin -create failed, ignored"
+        perl -MRazor2::Client::Agent -e "my $a = Razor2::Client::Agent->new(q{razor-admin}) or die $Razor2::Client::Agent::errstr; $a->read_options or die $a->errstr; $a->do_conf or die $a->errstr; exit $a->doit" -- -register "-home=%RAZORHOME%" || cmd /c "echo warn: razor-admin -register failed, ignored"
       shell: cmd
 
     - name: Install dependencies and optional modules for full testing on Windows part 3
@@ -49,17 +54,27 @@ runs:
         cpanm --installdeps -n .  || cmd /c "echo warn: errors installing required cpan modules have been ignored"
       shell: cmd
 
+    # MSYS2's libheif includes an HEVC decoder; append its directory so
+    # Strawberry's own DLLs still come first
+    - name: Install heif-dec on Windows
+      if: ${{ runner.os == 'Windows' }}
+      run: |
+        C:\msys64\usr\bin\pacman.exe -Sy --noconfirm --needed mingw-w64-ucrt-x86_64-libheif || echo warn: could not install libheif, ignored
+        echo PATH=%PATH%;C:\msys64\ucrt64\bin>>"%GITHUB_ENV%"
+      shell: cmd
+
     - name: Show content of log files on Windows
       if: ${{ failure() && ( runner.os == 'Windows' )  }}
       run: cat C:/Users/runner/.cpanm/work/*/build.log
       shell: cmd
 
+    # tests run in t/, and Mail::DMARC looks in ./etc
     - name: Install mail-dmarc.ini
       if: ${{ runner.os != 'Windows' }}
       run: |
-        mkdir -p etc
+        mkdir -p t/etc
         perl -MFile::ShareDir=dist_file -MFile::Copy=copy -e \
-          'copy(dist_file("Mail-DMARC","mail-dmarc.ini"), "etc/mail-dmarc.ini") or die $!' \
+          'copy(dist_file("Mail-DMARC","mail-dmarc.ini"), "t/etc/mail-dmarc.ini") or die $!' \
           || echo "warn: could not install mail-dmarc.ini, ignored"
       shell: bash
 
@@ -67,6 +82,6 @@ runs:
     - name: Install mail-dmarc.ini on Windows
       if: ${{ runner.os == 'Windows' }}
       run: |
-        if not exist etc mkdir etc
-        perl -MFile::ShareDir=dist_file -MFile::Copy=copy -e "copy(dist_file(q{Mail-DMARC}, q{mail-dmarc.ini}), q{etc/mail-dmarc.ini}) or die $!" || cmd /c "echo warn: could not install mail-dmarc.ini, ignored"
+        if not exist t\etc mkdir t\etc
+        perl -MFile::ShareDir=dist_file -MFile::Copy=copy -e "copy(dist_file(q{Mail-DMARC}, q{mail-dmarc.ini}), q{t/etc/mail-dmarc.ini}) or die $!" || cmd /c "echo warn: could not install mail-dmarc.ini, ignored"
       shell: cmd
