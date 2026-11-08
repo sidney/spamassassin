@@ -44,9 +44,12 @@ runs:
         perl -MRazor2::Client::Agent -e "my $a = Razor2::Client::Agent->new(q{razor-admin}) or die $Razor2::Client::Agent::errstr; $a->read_options or die $a->errstr; $a->do_conf or die $a->errstr; exit $a->doit" -- -register "-home=%RAZORHOME%" || cmd /c "echo warn: razor-admin -register failed, ignored"
       shell: cmd
 
+    # Strawberry 5.22 and 5.24 bundle a DBD::SQLite older than the SQLite tests
+    # need; --skip-satisfied leaves the newer bundled versions alone
     - name: Install dependencies and optional modules for full testing on Windows part 3
       if: ${{ runner.os == 'Windows' }}
       run: |
+        call cpanm -n --skip-satisfied DBD::SQLite~1.60 || cmd /c "echo warn: errors installing DBD::SQLite have been ignored"
         cpanm Mail::SPF -n --install-args="sbin=local/bin" || cmd /c "echo warn: errors installing Mail::SPF have been ignored"
       shell: cmd
 
