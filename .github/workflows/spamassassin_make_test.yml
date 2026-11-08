@@ -63,6 +63,12 @@ jobs:
     name: OS ${{matrix.runner}} Perl 5.${{matrix.perl}} DB ${{matrix.database}}
 
     steps:
+    # Perl 5.34's File::Find stops on the symlinks in build/pga/include in
+    # Makefile.PL's manifest check
+    - name: Check out symlinks as plain files on Windows
+      if: ${{ startsWith( matrix.runner, 'windows-' ) }}
+      run: git config --global core.symlinks false
+
     - uses: actions/checkout@v3
 
     - name: Install requirements for Ubuntu
