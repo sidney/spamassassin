@@ -38,7 +38,8 @@ plan skip_all => 'Need Archive::Zip for this test' unless HAS_ARCHIVE_ZIP;
 sub find_bin {
   my ($exe) = @_;
   my $found = Mail::SpamAssassin::Util::find_executable_in_env_path($exe);
-  return $found if $found;
+  # on Windows the PATHEXT extension taints it, and the test runs it
+  return Mail::SpamAssassin::Util::untaint_file_path($found) if $found;
   for my $dir (qw(/usr/bin /usr/local/bin /opt/homebrew/bin /opt/local/bin)) {
     my $cand = "$dir/$exe";
     return $cand if -x $cand;

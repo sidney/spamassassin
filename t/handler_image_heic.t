@@ -19,7 +19,8 @@ use MIME::Base64 ();
 sub find_bin {
   my ($name) = @_;
   my $found = Mail::SpamAssassin::Util::find_executable_in_env_path($name);
-  return $found if $found;
+  # on Windows the PATHEXT extension taints it, and the test runs it
+  return Mail::SpamAssassin::Util::untaint_file_path($found) if $found;
   for my $dir (qw(/usr/bin /usr/local/bin /opt/homebrew/bin /opt/local/bin)) {
     return "$dir/$name" if -x "$dir/$name";
   }
