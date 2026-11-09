@@ -72,21 +72,3 @@ runs:
       if: ${{ failure() && ( runner.os == 'Windows' )  }}
       run: cat C:/Users/runner/.cpanm/work/*/build.log
       shell: cmd
-
-    # tests run in t/, and Mail::DMARC looks in ./etc
-    - name: Install mail-dmarc.ini
-      if: ${{ runner.os != 'Windows' }}
-      run: |
-        mkdir -p t/etc
-        perl -MFile::ShareDir=dist_file -MFile::Copy=copy -e \
-          'copy(dist_file("Mail-DMARC","mail-dmarc.ini"), "t/etc/mail-dmarc.ini") or die $!' \
-          || echo "warn: could not install mail-dmarc.ini, ignored"
-      shell: bash
-
-    # cmd, not bash: Git Bash's own perl comes first in its PATH
-    - name: Install mail-dmarc.ini on Windows
-      if: ${{ runner.os == 'Windows' }}
-      run: |
-        if not exist t\etc mkdir t\etc
-        perl -MFile::ShareDir=dist_file -MFile::Copy=copy -e "copy(dist_file(q{Mail-DMARC}, q{mail-dmarc.ini}), q{t/etc/mail-dmarc.ini}) or die $!" || cmd /c "echo warn: could not install mail-dmarc.ini, ignored"
-      shell: cmd
