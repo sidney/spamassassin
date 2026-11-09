@@ -148,9 +148,10 @@ jobs:
           echo "SEGDIAG db: libpth, bundle links, undefined db symbols, headers"
           perl -V:libpth -V:libs
           ls -la /usr/local/include/db.h /usr/local/lib/libdb* 2>&1 | head -8
-          for b in $(perl -e 'for (@INC) { my $f = "$_/auto/DB_File/DB_File.bundle"; print "$f\n" if -e $f }'); do
+          for b in $(perl -e 'for my $d (@INC) { for my $m (qw(DB_File BerkeleyDB)) { my $f = "$d/auto/$m/$m.bundle"; print "$f\n" if -e $f } }'); do
             echo "== $b"; otool -L "$b"; nm -u "$b" | grep -i -e 'db_' -e 'dbopen'
           done
+          perl -MBerkeleyDB -e 1 >/dev/null 2>&1; echo "SEGDIAG alone BerkeleyDB rc=$?"
           echo "SEGDIAG db: DB_File section of the cpanm build log"
           for l in ~/.cpanm/work/*/build.log; do
             awk '/Configuring DB_File-/{f=1} f{print} /Successfully installed DB_File/{exit}' "$l" | grep -v '^Manifying\|^Installing\|^Appending' | head -80
