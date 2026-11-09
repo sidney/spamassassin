@@ -9,8 +9,8 @@ runs:
         cpanm -n Module::Install Archive::Zip BSD::Resource BerkeleyDB Compress::Zlib Convert::Ascii85 Crypt::RC4 CryptX DBI DBD::mysql DBD::Pg DB_File Devel::Cycle Digest::SHA Digest::SHA1 Email::Address::XS Encode::Detect Encode::Detect::Detector Geo::IP GeoIP2 GeoIP2::Database::Reader Geography::Countries HTML::Parser HTTP::Cookies HTTP::Daemon HTTP::Date HTTP::Negotiate IO::Socket::INET6 IO::Socket::SSL IP::Country IP::Country::DB_File IP::Geolocation::MMDB LWP::Protocol::https LWP::UserAgent Mail::DKIM File::ShareDir Mail::DMARC::PurePerl Math::Int128 MaxMind::DB::Reader::XS Net::CIDR::Lite Net::DNS Net::DNS::Nameserver Net::LibIDN Net::LibIDN2 Net::Patricia Net::Works::Network NetAddr::IP Params::Validate Selenium::Remote::Driver Sys::Hostname::Long Test::Perl::Critic Test::Pod Test::Pod::Coverage WWW::RobotRules Text::Diff Perl::Critic::Policy::Bangs::ProhibitBitwiseOperators Perl::Critic::Policy::Bangs::ProhibitDebuggingModules List::MoreUtils Perl::Critic::Policy::Perlsecret Perl::Critic::Policy::Compatibility::ProhibitThreeArgumentOpen Perl::Critic::Policy::Lax::ProhibitStringyEval::ExceptForRequire Perl::Critic::Policy::ValuesAndExpressions::PreventSQLInjection Perl::Critic::Policy::ControlStructures::ProhibitReturnInDoBlock || echo "warn: errors installing cpan modules have been ignored"
           cpanm Razor2::Client::Agent -n --install-args="DESTINSTALLSITESCRIPT=$HOME/.local/bin" || echo "warn: errors installing Razor2::Client::Agent have been ignored"
           hash -r
-          razor-admin --create
-          razor-admin --register
+          razor-admin --create || echo "warn: razor-admin --create failed, ignored"
+          razor-admin --register || echo "warn: razor-admin --register failed, ignored"
           cpanm Mail::SPF -n || echo "warn: errors installing Mail::SPF have been ignored"
           cpanm --installdeps -n .  || echo "warn: errors installing required cpan modules have been ignored"
       shell: bash
