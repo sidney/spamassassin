@@ -1,0 +1,107 @@
+name: SpamAssassin make test on FreeBSD
+
+# Experiment: runs make test in a FreeBSD VM (vmactions/freebsd-vm, QEMU on
+# an Ubuntu runner) as an unprivileged user, with the same t/config settings
+# as the Ubuntu job.
+
+on:
+    workflow_dispatch:
+      inputs:
+        release:
+          description: 'FreeBSD release; a leading part such as 15 picks the newest match'
+          required: true
+          default: '15'
+        tests:
+          description: 'tests to run, leave empty to run all'
+          required: false
+          type: string
+    push:
+      branches: [ gha-windows-coverage ]
+      paths: [ '.github/workflows/freebsd_make_test.yml' ]
+
+jobs:
+  freebsd-job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    name: FreeBSD ${{ github.event.inputs.release || '15' }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Start the FreeBSD VM and install packages
+      uses: vmactions/freebsd-vm@v1.6.0
+      with:
+        release: ${{ github.event.inputs.release || '15' }}
+        prepare: |
+          export ASSUME_ALWAYS_YES=yes
+          pkg update -f
+          missing=""
+          for p in perl5 p5-App-cpanminus re2c libidn libidn2 libmaxminddb db18 \
+              poppler-utils tesseract libheif unrar dcc-dccd razor-agents \
+              p5-Archive-Zip p5-BerkeleyDB p5-BSD-Resource p5-Convert-Ascii85 \
+              p5-Crypt-RC4 p5-CryptX p5-DBI p5-DBD-SQLite p5-Devel-Cycle \
+              p5-Digest-SHA1 p5-Email-Address-XS p5-Encode-Detect \
+              p5-Geography-Countries p5-GeoIP2 p5-HTML-Parser p5-HTTP-Daemon \
+              p5-IO-Socket-INET6 p5-IO-Socket-SSL p5-IO-String p5-IP-Country \
+              p5-libwww p5-LWP-Protocol-https p5-Mail-DKIM p5-Mail-DMARC \
+              p5-Mail-SPF p5-MaxMind-DB-Reader-XS p5-Net-CIDR-Lite p5-Net-DNS \
+              p5-Net-LibIDN p5-Net-LibIDN2 p5-Net-Patricia p5-NetAddr-IP \
+              p5-Params-Validate p5-Sys-Hostname-Long p5-Test-Perl-Critic \
+              p5-Test-Pod p5-Test-Pod-Coverage p5-Text-Diff p5-AI-FANN; do
+            pkg install -y "$p" > /dev/null 2>&1 || missing="$missing $p"
+          done
+          pyzor=$(pkg rquery -g '%n' 'py3*-pyzor' | sort | tail -1)
+          if [ -n "$pyzor" ]; then pkg install -y "$pyzor" > /dev/null 2>&1 || missing="$missing $pyzor"; else missing="$missing pyzor"; fi
+          echo "packages not installed:$missing" | tee /root/pkg-missing.txt
+          pw useradd satest -m -s /bin/sh
+
+    - name: Show the FreeBSD environment
+      shell: freebsd {0}
+      run: |
+        freebsd-version
+        uname -a
+        sysctl hw.ncpu hw.physmem
+        perl -v | sed -n 2p
+        cat /root/pkg-missing.txt
+        for c in re2c dccproc razor-check pyzor tesseract pdftotext heif-dec unrar; do
+          printf '%s: ' "$c"; command -v "$c" || echo "not found"
+        done
+        tesseract --list-langs 2>&1 | head -5 || true
+
+    - name: Install the remaining CPAN modules
+      shell: freebsd {0}
+      run: |
+        cpanm -n Module::Install Archive::Zip BSD::Resource BerkeleyDB Compress::Zlib Convert::Ascii85 Crypt::RC4 CryptX DBI DB_File Devel::Cycle Digest::SHA Digest::SHA1 Email::Address::XS Encode::Detect Encode::Detect::Detector Geo::IP GeoIP2 GeoIP2::Database::Reader Geography::Countries HTML::Parser HTTP::Cookies HTTP::Daemon HTTP::Date HTTP::Negotiate IO::Socket::INET6 IO::Socket::SSL IP::Country IP::Country::DB_File IP::Geolocation::MMDB LWP::Protocol::https LWP::UserAgent Mail::DKIM File::ShareDir Mail::DMARC::PurePerl Math::Int128 MaxMind::DB::Reader::XS Net::CIDR::Lite Net::DNS Net::DNS::Nameserver Net::LibIDN Net::LibIDN2 Net::Patricia Net::Works::Network NetAddr::IP Params::Validate Selenium::Remote::Driver Sys::Hostname::Long Test::Perl::Critic Test::Pod Test::Pod::Coverage WWW::RobotRules Text::Diff Perl::Critic::Policy::Bangs::ProhibitBitwiseOperators Perl::Critic::Policy::Bangs::ProhibitDebuggingModules List::MoreUtils Perl::Critic::Policy::Perlsecret Perl::Critic::Policy::Compatibility::ProhibitThreeArgumentOpen Perl::Critic::Policy::Lax::ProhibitStringyEval::ExceptForRequire Perl::Critic::Policy::ValuesAndExpressions::PreventSQLInjection Perl::Critic::Policy::ControlStructures::ProhibitReturnInDoBlock || echo "warn: errors installing cpan modules have been ignored"
+        cpanm -n Razor2::Client::Agent Mail::SPF || echo "warn: errors installing Razor2::Client::Agent or Mail::SPF have been ignored"
+        cpanm --installdeps -n . || echo "warn: errors installing required cpan modules have been ignored"
+
+    - name: Copy the tree for the test user and build
+      shell: freebsd {0}
+      run: |
+        rm -rf /home/satest/sa
+        cp -Rp "$(pwd)" /home/satest/sa
+        chown -R satest /home/satest/sa
+        su -l satest -c 'razor-admin -create; razor-admin -register' || echo "warn: razor-admin failed, ignored"
+        cat > /home/satest/build.sh <<'EOF'
+        cd ~/sa || exit 1
+        perl -i.bak -pe 's/^run_(long_tests|net_tests|ipv6_dns_tests|dcc_tests)=n/run_$1=y/' t/config.dist
+        perl Makefile.PL < /dev/null && make ENABLE_SSL=yes
+        EOF
+        su -l satest -c 'sh ~/build.sh'
+
+    - name: Run Tests
+      shell: freebsd {0}
+      run: |
+        ws=$(pwd)
+        rc=0
+        su -l satest -c 'cd ~/sa && make test ${{ github.event.inputs.tests && format('TEST_FILES="{0}"', github.event.inputs.tests) || '' }}' || rc=$?
+        mkdir -p "$ws/freebsd-t-log"
+        cp -R /home/satest/sa/t/log/. "$ws/freebsd-t-log/" 2>/dev/null || true
+        exit $rc
+
+    - name: Publish logs as artifacts
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: freebsd_test_logs
+        path: freebsd-t-log
