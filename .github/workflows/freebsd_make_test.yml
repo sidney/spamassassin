@@ -37,7 +37,7 @@ jobs:
           pkg update -f
           missing=""
           for p in perl5 p5-App-cpanminus re2c libidn libidn2 libmaxminddb db18 \
-              poppler-utils tesseract libheif unrar dcc-dccd razor-agents \
+              poppler-utils tesseract libheif unrar fann razor-agents \
               p5-Archive-Zip p5-BerkeleyDB p5-BSD-Resource p5-Convert-Ascii85 \
               p5-Crypt-RC4 p5-CryptX p5-DBI p5-DBD-SQLite p5-Devel-Cycle \
               p5-Digest-SHA1 p5-Email-Address-XS p5-Encode-Detect \
@@ -68,11 +68,40 @@ jobs:
         done
         tesseract --list-langs 2>&1 | head -5 || true
 
+    # t/dnsplatform.t needs a large TXT reply, which takes TCP after the
+    # truncated UDP one
+    - name: Use public DNS servers, with probes before and after
+      shell: freebsd {0}
+      run: |
+        cat > /root/dns-probe.pl <<'EOF'
+        use Net::DNS;
+        for my $vc (0, 1) {
+          my $r = Net::DNS::Resolver->new(usevc => $vc, igntc => 1, tcp_timeout => 10, udp_timeout => 10);
+          my $p = $r->send('txttcp.spamassassin.org', 'TXT');
+          printf "%s: %s\n", $vc ? 'tcp' : 'udp',
+            $p ? scalar($p->answer) . ' answers, ' . $p->answersize . ' bytes, tc=' . $p->header->tc : 'no reply: ' . $r->errorstring;
+        }
+        EOF
+        cat /etc/resolv.conf
+        perl /root/dns-probe.pl
+        printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+        perl /root/dns-probe.pl
+
+    - name: Build and install DCC from source
+      shell: freebsd {0}
+      run: |
+        mkdir -p /root/src && cd /root/src
+        fetch -q https://www.dcc-servers.net/dcc/source/dcc.tar.Z
+        tar xf dcc.tar.Z
+        cd dcc-*
+        ./configure --disable-server --disable-dccm --disable-dccifd && make && make install || echo "warn: DCC build failed, ignored"
+        command -v dccproc || echo "dccproc not found"
+
     - name: Install the remaining CPAN modules
       shell: freebsd {0}
       run: |
         cpanm -n Module::Install Archive::Zip BSD::Resource BerkeleyDB Compress::Zlib Convert::Ascii85 Crypt::RC4 CryptX DBI DB_File Devel::Cycle Digest::SHA Digest::SHA1 Email::Address::XS Encode::Detect Encode::Detect::Detector Geo::IP GeoIP2 GeoIP2::Database::Reader Geography::Countries HTML::Parser HTTP::Cookies HTTP::Daemon HTTP::Date HTTP::Negotiate IO::Socket::INET6 IO::Socket::SSL IP::Country IP::Country::DB_File IP::Geolocation::MMDB LWP::Protocol::https LWP::UserAgent Mail::DKIM File::ShareDir Mail::DMARC::PurePerl Math::Int128 MaxMind::DB::Reader::XS Net::CIDR::Lite Net::DNS Net::DNS::Nameserver Net::LibIDN Net::LibIDN2 Net::Patricia Net::Works::Network NetAddr::IP Params::Validate Selenium::Remote::Driver Sys::Hostname::Long Test::Perl::Critic Test::Pod Test::Pod::Coverage WWW::RobotRules Text::Diff Perl::Critic::Policy::Bangs::ProhibitBitwiseOperators Perl::Critic::Policy::Bangs::ProhibitDebuggingModules List::MoreUtils Perl::Critic::Policy::Perlsecret Perl::Critic::Policy::Compatibility::ProhibitThreeArgumentOpen Perl::Critic::Policy::Lax::ProhibitStringyEval::ExceptForRequire Perl::Critic::Policy::ValuesAndExpressions::PreventSQLInjection Perl::Critic::Policy::ControlStructures::ProhibitReturnInDoBlock || echo "warn: errors installing cpan modules have been ignored"
-        cpanm -n Razor2::Client::Agent Mail::SPF || echo "warn: errors installing Razor2::Client::Agent or Mail::SPF have been ignored"
+        cpanm -n Razor2::Client::Agent Mail::SPF AI::FANN || echo "warn: errors installing Razor2::Client::Agent, Mail::SPF or AI::FANN have been ignored"
         cpanm --installdeps -n . || echo "warn: errors installing required cpan modules have been ignored"
 
     - name: Copy the tree for the test user and build
@@ -84,7 +113,7 @@ jobs:
         su -l satest -c 'razor-admin -create; razor-admin -register' || echo "warn: razor-admin failed, ignored"
         cat > /home/satest/build.sh <<'EOF'
         cd ~/sa || exit 1
-        perl -i.bak -pe 's/^run_(long_tests|net_tests|ipv6_dns_tests|dcc_tests)=n/run_$1=y/' t/config.dist
+        perl -i.bak -pe 's/^run_(long_tests|net_tests|ipv6_dns_tests|dcc_tests|spamd_prefork_stress_test)=n/run_$1=y/' t/config.dist
         perl Makefile.PL < /dev/null && make ENABLE_SSL=yes
         EOF
         su -l satest -c 'sh ~/build.sh'
