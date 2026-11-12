@@ -15,6 +15,10 @@ on:
           description: 'tests to run, leave empty to run all'
           required: false
           type: string
+        groups:
+          description: 'supplementary groups for the test user (pw useradd -G), for diagnostics'
+          required: false
+          type: string
     push:
       branches: [ gha-windows-coverage ]
       paths: [ '.github/workflows/freebsd_make_test.yml' ]
@@ -53,7 +57,7 @@ jobs:
           pyzor=$(pkg rquery -g '%n' 'py3*-pyzor' | sort | tail -1)
           if [ -n "$pyzor" ]; then pkg install -y "$pyzor" > /dev/null 2>&1 || missing="$missing $pyzor"; else missing="$missing pyzor"; fi
           echo "packages not installed:$missing" | tee /root/pkg-missing.txt
-          pw useradd satest -m -s /bin/sh
+          pw useradd satest -m -s /bin/sh ${{ github.event.inputs.groups && format('-G {0}', github.event.inputs.groups) || '' }}
 
     - name: Show the FreeBSD environment
       shell: freebsd {0}
@@ -123,7 +127,14 @@ jobs:
       run: |
         ws=$(pwd)
         rc=0
+        cat > /home/satest/ids.sh <<'EOF'
+        id
+        perl -e 'print "\$( = $(\n\$) = $)\n"'
+        perl -Iblib/lib -MMail::SpamAssassin::Util -e 'print "get_user_groups: ", Mail::SpamAssassin::Util::get_user_groups($>), "\n"'
+        EOF
+        su -l satest -c 'cd ~/sa && sh ~/ids.sh' || true
         su -l satest -c 'cd ~/sa && make test ${{ github.event.inputs.tests && format('TEST_FILES="{0}"', github.event.inputs.tests) || '' }}' || rc=$?
+        grep -rhE 'effective gid|Group already set|setgid|setuid|now running as' /home/satest/sa/t/log 2>/dev/null | sed -E 's/^[A-Z][a-z]{2} +[0-9]+ [0-9:.]+ \[[0-9]+\] //' | sort | uniq -c | head -20 || true
         mkdir -p "$ws/freebsd-t-log"
         cp -R /home/satest/sa/t/log/. "$ws/freebsd-t-log/" 2>/dev/null || true
         exit $rc
