@@ -1,0 +1,88 @@
+name: DragonFly spamd_hup.t repeat
+
+# Diagnostic: CPAN Testers saw t/spamd_hup.t fail once on DragonFly 6.4
+# (spamd gone after the 8th SIGHUP). Runs it repeatedly in a DragonFly VM
+# (vmactions, QEMU on an Ubuntu runner) as an unprivileged user and keeps
+# t/log from failing runs.
+
+on:
+    workflow_dispatch:
+      inputs:
+        runs:
+          description: 'number of t/spamd_hup.t runs'
+          required: true
+          default: '20'
+    push:
+      branches: [ gha-windows-coverage ]
+      paths: [ '.github/workflows/dragonfly_spamd_hup.yml' ]
+
+jobs:
+  dragonfly-hup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Start the DragonFly VM and install packages
+      uses: vmactions/dragonflybsd-vm@v1.3.4
+      with:
+        prepare: |
+          missing=""
+          for p in perl5 p5-HTML-Parser p5-Net-DNS p5-NetAddr-IP p5-Mail-DKIM \
+              p5-Digest-SHA1 p5-Archive-Zip p5-IO-String; do
+            pkg install -y "$p" > /dev/null 2>&1 || missing="$missing $p"
+          done
+          echo "packages not installed:$missing"
+          pw useradd satest -m -s /bin/sh
+
+    - name: Show the environment
+      shell: dragonflybsd {0}
+      run: |
+        uname -a
+        sysctl hw.ncpu hw.physmem
+        perl -v | sed -n 2p
+        perl -MHTML::Parser -MNet::DNS -MNetAddr::IP -e 'print "HTML::Parser $HTML::Parser::VERSION Net::DNS $Net::DNS::VERSION NetAddr::IP $NetAddr::IP::VERSION\n"'
+
+    - name: Copy the tree for the test user and build
+      shell: dragonflybsd {0}
+      run: |
+        rm -rf /home/satest/sa
+        cp -Rp "$(pwd)" /home/satest/sa
+        chown -R satest /home/satest/sa
+        su -l satest -c 'cd ~/sa && perl Makefile.PL < /dev/null > ~/build.log 2>&1 && make >> ~/build.log 2>&1' || { tail -40 /home/satest/build.log; exit 1; }
+
+    - name: Run t/spamd_hup.t repeatedly
+      shell: dragonflybsd {0}
+      run: |
+        ws=$(pwd)
+        mkdir -p "$ws/hup-logs"
+        n=${{ github.event.inputs.runs || '20' }}
+        fails=0
+        i=1
+        while [ "$i" -le "$n" ]; do
+          rm -rf /home/satest/sa/t/log/spamd_hup.*
+          start=$(date +%s)
+          if su -l satest -c 'cd ~/sa && make test TEST_FILES=t/spamd_hup.t' > "$ws/hup-logs/run-$i.out" 2>&1; then
+            echo "run $i: PASS ($(( $(date +%s) - start )) s)"
+            rm -f "$ws/hup-logs/run-$i.out"
+          else
+            fails=$((fails + 1))
+            echo "run $i: FAIL ($(( $(date +%s) - start )) s)"
+            mkdir -p "$ws/hup-logs/run-$i-t-log"
+            cp -R /home/satest/sa/t/log/. "$ws/hup-logs/run-$i-t-log/" 2>/dev/null || true
+            grep -E 'not ok|Failed|retrying' "$ws/hup-logs/run-$i.out" | head -20
+          fi
+          i=$((i + 1))
+        done
+        echo "spamd_hup.t: $fails of $n runs failed"
+        dmesg | tail -40 > "$ws/hup-logs/dmesg.txt"
+        tail -60 /var/log/messages > "$ws/hup-logs/messages.txt" 2>/dev/null || true
+        cat "$ws/hup-logs/dmesg.txt"
+        [ "$fails" -eq 0 ]
+
+    - name: Publish logs as artifacts
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: dragonfly_hup_logs
+        path: hup-logs
