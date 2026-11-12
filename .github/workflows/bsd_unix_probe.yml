@@ -1,0 +1,54 @@
+name: Accepted-socket getpeername probe on the BSDs
+
+# Diagnostic: runs .github/bsd-unix-probe/probe.pl in FreeBSD, OpenBSD,
+# NetBSD and DragonFly VMs (vmactions, QEMU on an Ubuntu runner).
+
+on:
+    workflow_dispatch:
+    push:
+      branches: [ gha-windows-coverage ]
+      paths: [ '.github/workflows/bsd_unix_probe.yml', '.github/bsd-unix-probe/**' ]
+
+jobs:
+  freebsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+    - uses: vmactions/freebsd-vm@v1.6.0
+      with:
+        copyback: false
+        prepare: ASSUME_ALWAYS_YES=yes pkg install -y perl5
+        run: perl .github/bsd-unix-probe/probe.pl
+
+  openbsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+    - uses: vmactions/openbsd-vm@v1.4.9
+      with:
+        copyback: false
+        run: perl .github/bsd-unix-probe/probe.pl
+
+  netbsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+    - uses: vmactions/netbsd-vm@v1.5.3
+      with:
+        copyback: false
+        prepare: /usr/sbin/pkg_add perl
+        run: perl .github/bsd-unix-probe/probe.pl
+
+  dragonflybsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+    - uses: vmactions/dragonflybsd-vm@v1.3.4
+      with:
+        copyback: false
+        prepare: pkg install -y perl5
+        run: perl .github/bsd-unix-probe/probe.pl
