@@ -1,9 +1,11 @@
 name: DragonFly spamd_hup.t repeat
 
 # Diagnostic: CPAN Testers saw t/spamd_hup.t fail once on DragonFly 6.4
-# (spamd gone after the 8th SIGHUP). Runs it repeatedly in a DragonFly VM
-# (vmactions, QEMU on an Ubuntu runner) as an unprivileged user and keeps
-# t/log from failing runs.
+# with Perl 5.24.4 (spamd gone after the 8th SIGHUP). Runs it repeatedly in
+# a DragonFly VM (vmactions, QEMU on an Ubuntu runner) as an unprivileged
+# user and keeps t/log from failing runs. With perl set to a version, that
+# Perl is built from source as the smoker's perlbrew Perl was, and the
+# required modules go into a local lib on PERL5LIB, as on the smoker.
 
 on:
     workflow_dispatch:
@@ -12,9 +14,16 @@ on:
           description: 'number of t/spamd_hup.t runs'
           required: true
           default: '20'
+        perl:
+          description: 'pkg for the packaged Perl, or a version to build, such as 5.24.4'
+          required: true
+          default: '5.24.4'
     push:
       branches: [ gha-windows-coverage ]
       paths: [ '.github/workflows/dragonfly_spamd_hup.yml' ]
+
+env:
+  PERLVER: ${{ github.event.inputs.perl || '5.24.4' }}
 
 jobs:
   dragonfly-hup:
@@ -26,30 +35,57 @@ jobs:
     - name: Start the DragonFly VM and install packages
       uses: vmactions/dragonflybsd-vm@v1.3.4
       with:
+        envs: 'PERLVER'
         prepare: |
           missing=""
-          for p in perl5 p5-HTML-Parser p5-Net-DNS p5-NetAddr-IP p5-Mail-DKIM \
-              p5-Digest-SHA1 p5-Archive-Zip p5-IO-String; do
+          for p in perl5 p5-App-cpanminus p5-HTML-Parser p5-Net-DNS \
+              p5-NetAddr-IP p5-Mail-DKIM p5-Digest-SHA1 p5-Archive-Zip \
+              p5-IO-String; do
             pkg install -y "$p" > /dev/null 2>&1 || missing="$missing $p"
           done
           echo "packages not installed:$missing"
           pw useradd satest -m -s /bin/sh
 
-    - name: Show the environment
+    - name: Build Perl ${{ env.PERLVER }}
+      if: ${{ env.PERLVER != 'pkg' }}
       shell: dragonflybsd {0}
       run: |
-        uname -a
-        sysctl hw.ncpu hw.physmem
-        perl -v | sed -n 2p
-        perl -MHTML::Parser -MNet::DNS -MNetAddr::IP -e 'print "HTML::Parser $HTML::Parser::VERSION Net::DNS $Net::DNS::VERSION NetAddr::IP $NetAddr::IP::VERSION\n"'
+        PERLVER='${{ env.PERLVER }}'
+        cd /root
+        fetch -q "https://www.cpan.org/src/5.0/perl-$PERLVER.tar.gz"
+        fetch -q "https://www.cpan.org/src/5.0/perl-$PERLVER.tar.gz.sha256.txt"
+        [ "$(sha256 -q "perl-$PERLVER.tar.gz")" = "$(cat "perl-$PERLVER.tar.gz.sha256.txt")" ] || { echo "checksum mismatch"; exit 1; }
+        tar xzf "perl-$PERLVER.tar.gz"
+        cd "perl-$PERLVER"
+        { sh Configure -de -Dprefix="/opt/perl-$PERLVER" -Dusethreads -Accflags=-fcommon \
+            && make -j4 && make install; } > /root/perl-build.log 2>&1 || { tail -60 /root/perl-build.log; exit 1; }
+        "/opt/perl-$PERLVER/bin/perl" -v | sed -n 2p
+
+    - name: Install the required modules into a local lib for the test user
+      if: ${{ env.PERLVER != 'pkg' }}
+      shell: dragonflybsd {0}
+      run: |
+        PERLVER='${{ env.PERLVER }}'
+        p="/opt/perl-$PERLVER/bin/perl"
+        su -l satest -c "$p /usr/local/bin/cpanm -n -q -l ~/ll HTML::Parser Net::DNS NetAddr::IP Digest::SHA1 Archive::Zip IO::String" || { tail -40 /home/satest/.cpanm/build.log; exit 1; }
+        su -l satest -c "$p /usr/local/bin/cpanm -n -q -l ~/ll Mail::DKIM" || echo "warn: Mail::DKIM not installed"
 
     - name: Copy the tree for the test user and build
       shell: dragonflybsd {0}
       run: |
+        PERLVER='${{ env.PERLVER }}'
+        if [ "$PERLVER" = pkg ]; then
+          printf 'PERLBIN=perl\n' > /home/satest/env.sh
+        else
+          printf 'PERLBIN=/opt/perl-%s/bin/perl\nPERL5LIB=$HOME/ll/lib/perl5\nexport PERL5LIB\n' "$PERLVER" > /home/satest/env.sh
+        fi
         rm -rf /home/satest/sa
         cp -Rp "$(pwd)" /home/satest/sa
         chown -R satest /home/satest/sa
-        su -l satest -c 'cd ~/sa && perl Makefile.PL < /dev/null > ~/build.log 2>&1 && make >> ~/build.log 2>&1' || { tail -40 /home/satest/build.log; exit 1; }
+        su -l satest -c '. ~/env.sh; cd ~/sa && $PERLBIN Makefile.PL < /dev/null > ~/build.log 2>&1 && make >> ~/build.log 2>&1' || { tail -40 /home/satest/build.log; exit 1; }
+        su -l satest -c '. ~/env.sh; $PERLBIN -v | sed -n 2p; $PERLBIN -MHTML::Parser -MNet::DNS -MNetAddr::IP -e "print qq{HTML::Parser \$HTML::Parser::VERSION Net::DNS \$Net::DNS::VERSION NetAddr::IP \$NetAddr::IP::VERSION\n}"; $PERLBIN -MMail::DKIM -e "print qq{Mail::DKIM \$Mail::DKIM::VERSION\n}" 2>/dev/null || echo "no Mail::DKIM"'
+        uname -a
+        sysctl hw.ncpu hw.physmem
 
     - name: Run t/spamd_hup.t repeatedly
       shell: dragonflybsd {0}
@@ -62,7 +98,7 @@ jobs:
         while [ "$i" -le "$n" ]; do
           rm -rf /home/satest/sa/t/log/spamd_hup.*
           start=$(date +%s)
-          if su -l satest -c 'cd ~/sa && make test TEST_FILES=t/spamd_hup.t' > "$ws/hup-logs/run-$i.out" 2>&1; then
+          if su -l satest -c '. ~/env.sh; cd ~/sa && make test TEST_FILES=t/spamd_hup.t' > "$ws/hup-logs/run-$i.out" 2>&1; then
             echo "run $i: PASS ($(( $(date +%s) - start )) s)"
             rm -f "$ws/hup-logs/run-$i.out"
           else
