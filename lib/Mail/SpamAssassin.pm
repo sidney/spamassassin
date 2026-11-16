@@ -88,30 +88,30 @@ use Cwd;
 use Config;
 
 our $VERSION = "4.000003";      # update after release (same format as perl $])
-our $IS_DEVEL_BUILD = 1;        # 1 for devel build 
-# our $IS_DEVEL_BUILD = 0;        # 0 for release versions including rc & pre releases
+# our $IS_DEVEL_BUILD = 1;        # 1 for devel build 
+our $IS_DEVEL_BUILD = 0;        # 0 for release versions including rc & pre releases
 
 # Used during the prerelease/release-candidate part of the official release
 # process. If you hacked up your SA, you should add a version_tag to your .cf
 # files; this variable should not be modified.
-our @EXTRA_VERSION = qw();
+our @EXTRA_VERSION = qw(rc3);
 
 our @ISA = qw();
 
 # SUB_VERSION is now just <yyyy>-<mm>-<dd>
 our $SUB_VERSION = 'svnunknown';
-if ('$LastChangedDate$' =~ ':') {
-  # Subversion keyword "$LastChangedDate$" has been successfully expanded.
+if ('$LastChangedDate: 2026-11-16 10:17:33 +0100 (Mon, 16 Nov 2026) $' =~ ':') {
+  # Subversion keyword "$LastChangedDate: 2026-11-16 10:17:33 +0100 (Mon, 16 Nov 2026) $" has been successfully expanded.
   # Doesn't happen with automated launchpad builds:
   # https://bugs.launchpad.net/launchpad/+bug/780916
-  $SUB_VERSION = (split(/\s+/,'$LastChangedDate$ updated by SVN'))[1];
+  $SUB_VERSION = (split(/\s+/,'$LastChangedDate: 2026-11-16 10:17:33 +0100 (Mon, 16 Nov 2026) $ updated by SVN'))[1];
 }
 
 
 if (defined $IS_DEVEL_BUILD && $IS_DEVEL_BUILD) {
-  if ('$LastChangedRevision$' =~ ':') {
-    # Subversion keyword "$LastChangedRevision$" has been successfully expanded.
-    push(@EXTRA_VERSION, ('r' . qw{$LastChangedRevision$ updated by SVN}[1]));
+  if ('$LastChangedRevision: 1940351 $' =~ ':') {
+    # Subversion keyword "$LastChangedRevision: 1940351 $" has been successfully expanded.
+    push(@EXTRA_VERSION, ('r' . qw{$LastChangedRevision: 1940351 $ updated by SVN}[1]));
   } else {
     push(@EXTRA_VERSION, ('r' . 'svnunknown'));
   }

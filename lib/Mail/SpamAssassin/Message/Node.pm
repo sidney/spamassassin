@@ -87,6 +87,8 @@ my %file_type_map = (
     'tgz'   => 'application/gzip',
     'tif'   => 'image/tiff',
     'tiff'  => 'image/tiff',
+    'vbe'   => 'text/vbscript',
+    'vbs'   => 'text/vbscript',
     'webp'  => 'image/webp',
     'zip'   => 'application/zip',
 );
@@ -102,7 +104,7 @@ my %mime_type_map = (
     'application/acrobat'        => 'application/pdf',
     'text/pdf'                   => 'application/pdf',
     'text/x-pdf'                 => 'application/pdf',
-    # JavaScript: text/javascript is canonical (the JavaScript handler's type).
+    # JavaScript: text/javascript is canonical (a Script handler type).
     'application/javascript'     => 'text/javascript',
     'application/x-javascript'   => 'text/javascript',
     'application/ecmascript'     => 'text/javascript',
@@ -115,9 +117,15 @@ my %mime_type_map = (
     'text/livescript'            => 'text/javascript',
     'text/x-javascript'          => 'text/javascript',
     'text/x-ecmascript'          => 'text/javascript',
+    # VBScript: text/vbscript is canonical (a Script handler type).
+    'application/vbscript'       => 'text/vbscript',
+    'application/x-vbscript'     => 'text/vbscript',
+    'application/x-vbs'          => 'text/vbscript',
+    'text/x-vbscript'            => 'text/vbscript',
+    'text/vbs'                   => 'text/vbscript',
     # JSON: application/json is canonical.  JSON-LD and the +json structured
     # types are data, not script; aliasing them keeps a <script type=...> block
-    # of this kind out of the JavaScript handler (and ready for a JSON handler).
+    # of this kind out of the Script handler (and ready for a JSON handler).
     'application/ld+json'        => 'application/json',
     'text/json'                  => 'application/json',
     'text/x-json'                => 'application/json',
@@ -676,15 +684,20 @@ sub _normalize {
     # leniently: a lone surrogate (legal in a JavaScript string, e.g. a pair
     # split across two string literals) becomes U+FFFD instead of failing the
     # whole part.  A label alone is weaker evidence, so that decode stays strict.
+    #
+    # The lenient check must be exactly FB_DEFAULT (0), without LEAVE_SRC:
+    # Encode::Unicode before Encode 2.99 (e.g. core Encode of perl <= 5.28)
+    # croaks on a malformed surrogate whenever check is non-zero, LEAVE_SRC
+    # included.  With check 0 Encode never modifies the source anyway.
     my $decoder = detect_utf16( $_[0] );
     my $check = Encode::FB_DEFAULT;
     if (!defined $decoder && $charset_declared ne '') {
       $decoder = Encode::find_encoding(
                    $charset_declared =~ /LE\z/i ? 'UTF-16LE' : 'UTF-16BE');
-      $check = Encode::FB_CROAK;
+      $check = Encode::FB_CROAK | Encode::LEAVE_SRC;
     }
     if (defined $decoder) {
-      if (eval { $rv = $decoder->decode($_[0], $check | Encode::LEAVE_SRC); defined $rv }) {
+      if (eval { $rv = $decoder->decode($_[0], $check); defined $rv }) {
         dbg("message: decoded as charset %s, declared %s",
           $decoder->name, $charset_declared);
         utf8::encode($rv) if !$return_decoded;
@@ -849,6 +862,12 @@ sub _normalize {
   return $rv;
 }
 
+# The canonical type for a MIME type, after the aliases in %mime_type_map
+sub canonical_type {
+  my ($type) = @_;
+  return $mime_type_map{$type} // $type;
+}
+
 # Parse effective content type (Bug 6260, 6439)
 sub effective_type {
   my ($self) = @_;
@@ -858,10 +877,8 @@ sub effective_type {
     $ext = lc $1 if $name =~ /\.([^.]+)$/;
     if ( defined $ext && exists $file_type_map{$ext} ) {
       $self->{'effective_type'} = $file_type_map{$ext};
-    } elsif ( exists $mime_type_map{$self->{'type'}} ) {
-      $self->{'effective_type'} = $mime_type_map{$self->{'type'}};
     } else {
-      $self->{'effective_type'} = $self->{'type'};
+      $self->{'effective_type'} = canonical_type($self->{'type'});
     }
   }
   return $self->{'effective_type'};

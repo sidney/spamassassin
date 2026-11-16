@@ -6,26 +6,31 @@ use Mail::SpamAssassin::Util;
 
 use Test::More;
 
-use constant HAS_ARCHIVE_ZIP => eval { require Archive::Zip; };
-plan skip_all => 'Need Archive::Zip for this test' unless HAS_ARCHIVE_ZIP;
+use constant HAS_ARCHIVE_ZIP => eval { require Archive::Zip; Archive::Zip->VERSION(1.34); };
+plan skip_all => 'Need Archive::Zip 1.34 or later for this test' unless HAS_ARCHIVE_ZIP;
 
 # ---------------------------------------------------------------------------
 # End-to-end test of Mail::SpamAssassin::Handler::Archive.
 #
 # The handler opens zip / rar attachments and returns each inner file as a
 # sub-part, which the framework re-dispatches by filename extension.  So an
-# inner *.js reaches the JavaScript handler and an inner *.html is rendered into
+# inner *.js reaches the script handler and an inner *.html is rendered into
 # the body.  (Note: a plain *.txt member is deliberately NOT surfaced as body
 # text -- only text/plain, text/html and message/* parts feed body rules, and
 # .txt is not in the file-type map -- so the fixtures use *.js and *.html.)
 #
 # We confirm:
-#   * an inner *.js member reaches the JavaScript handler ('script' rule);
+#   * an inner *.js member reaches the script handler ('script' rule);
 #   * an inner *.html member is rendered into the body;
 #   * the same works when the zip is mislabelled application/octet-stream but
 #     named *.zip (Message::Node::effective_type maps it back);
+#   * a member with the same length and start as an earlier one, or the same
+#     content as an earlier member of another type, is not skipped;
 #   * archive_max_files caps how many members are extracted;
-#   * rar archives behave the same (only when 'unrar' is installed).
+#   * rar archives behave the same (only when 'unrar' is installed), including
+#     a member with the same name as an earlier one, or with a space in its name;
+#   * rar member names unrar must not see are skipped before the
+#     archive_max_files cap.
 #
 # Each fixture under data/nice/ is an ordinary MIME message (100% ASCII) whose
 # attachment is a small zip/rar containing inner.js (sentinel INNERJS) and
@@ -51,19 +56,19 @@ my $unrar = find_bin('unrar');
 $unrar = undef if $unrar
   && `"$unrar" -V 2>&1` !~ /Alexander Roshal|^unrar-free (?:0\.(?:[2-9]|\d\d)|[1-9])/m;
 
-# 7 zip assertions, +3 octet-stream, +2 max-files, +4 rar (only actually run when unrar present)
-plan tests => 7 + 3 + 2 + 4;
+# 7 zip assertions, +3 octet-stream, +4 alike members, +2 max-files, +7 rar, +3 unsafe rar names (only actually run when unrar present)
+plan tests => 7 + 3 + 4 + 2 + 7 + 3;
 
 tstpre ("
   loadhandler Mail::SpamAssassin::Handler::Archive
   loadhandler Mail::SpamAssassin::Handler::HTML
-  loadhandler Mail::SpamAssassin::Handler::JavaScript
+  loadhandler Mail::SpamAssassin::Handler::Script
 " . (defined $unrar ? "  archive_unrar_path $unrar\n" : ""));
 
 tstlocalrules ('
   script ARC_JS         /INNERJS/
   score  ARC_JS         1.0
-  describe ARC_JS       an inner .js file reached the JavaScript handler
+  describe ARC_JS       an inner .js file reached the script handler
 
   body   ARC_HTML       /INNERHTML/
   score  ARC_HTML       1.0
@@ -104,6 +109,20 @@ ok_all_patterns();
 ok (sarun ("-L -t < data/nice/handler_archive_octet", \&patterns_run_cb));
 ok_all_patterns();
 
+# --- inner.js after a readme.txt of the same length and first 64 bytes ------
+%patterns = (
+  ' 1.0 ARC_JS ', 'alike_js_member',
+);
+ok (sarun ("-L -t < data/nice/handler_archive_dedup", \&patterns_run_cb));
+ok_all_patterns();
+
+# --- inner.js after a readme.txt with the same content ----------------------
+%patterns = (
+  ' 1.0 ARC_JS ', 'copy_js_member',
+);
+ok (sarun ("-L -t < data/nice/handler_archive_dedup_copy", \&patterns_run_cb));
+ok_all_patterns();
+
 # --- archive_max_files cap (extract only the first member) ------------------
 # inner.js is first in the zip, so with archive_max_files 1 only ARC_JS fires;
 # the inner.html member must NOT be extracted, so ARC_HTML must NOT fire.
@@ -121,7 +140,7 @@ ok_all_patterns();
 
 # --- rar (only when unrar is available) -------------------------------------
 SKIP: {
-  skip("no unrar that the handler uses", 4) unless $unrar;
+  skip("no unrar that the handler uses", 10) unless $unrar;
 
   %patterns = (
     ' 1.0 ARC_JS ',     'rar_js_member',
@@ -130,5 +149,23 @@ SKIP: {
   );
   %anti_patterns = ();
   ok (sarun ("-L -t < data/nice/handler_archive_rar", \&patterns_run_cb));
+  ok_all_patterns();
+
+  # a second inner.js after a harmless one, and "my inner.html"
+  %patterns = (
+    ' 1.0 ARC_JS ',   'rar_duplicate_name_member',
+    ' 1.0 ARC_HTML ', 'rar_name_with_space_member',
+  );
+  ok (sarun ("-L -t < data/nice/handler_archive_rar_names", \&patterns_run_cb));
+  ok_all_patterns();
+
+  # the first two members are named x"y.js and @x.js, which unrar would read
+  # as a list file, so with a cap of one only inner.js is extracted
+  %patterns = (
+    ' 1.0 ARC_JS ',     'rar_unsafe_names_skipped',
+    ' 1.0 ARC_COUNT2 ', 'rar_unsafe_names_counted',
+  );
+  ok (sarun ("-L -t --cf=\"archive_max_files 1\" < data/nice/handler_archive_rar_unsafe",
+             \&patterns_run_cb));
   ok_all_patterns();
 }
