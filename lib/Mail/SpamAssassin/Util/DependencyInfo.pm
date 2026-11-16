@@ -47,7 +47,7 @@ our @MODULES = (
 },
 {
   'module' => 'HTML::Parser',
-  'version' => '3.72',
+  'version' => '3.43',
   'desc' => 'HTML is used for an ever-increasing amount of email so this dependency
   is unavoidable.  Run "perldoc -q html" for additional information.',
 },
@@ -221,7 +221,7 @@ our @OPTIONAL_MODULES = (
 },
 {
   module => 'IO::Socket::SSL',
-  version => 1.994,
+  version => 1.76,
   desc => 'If you wish to use SSL encryption to communicate between spamc and
   spamd (the --ssl option to spamd), you need to install this
   module. (You will need the OpenSSL libraries and use the
@@ -316,7 +316,7 @@ our @OPTIONAL_MODULES = (
 },
 {
   module => 'Archive::Zip',
-  version => '1.34',
+  version => 0,
   desc => 'Archive::Zip provides an interface to ZIP archive files.
   It is used by the optional OLEVBMacro Plugin and Archive handler.',
 },

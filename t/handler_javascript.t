@@ -6,18 +6,18 @@ use SATest; sa_t_init("handler_javascript");
 use Test::More;
 
 # ---------------------------------------------------------------------------
-# End-to-end test of Mail::SpamAssassin::Handler::Script.
+# End-to-end test of Mail::SpamAssassin::Handler::JavaScript.
 #
 #  * handler_javascript            - an inline text/html BODY whose <script> tag,
 #                                    javascript: URI and onerror= handler carry
 #                                    sentinels.  Body script is inert in MUAs, so
 #                                    the HTML handler does NOT surface it to the
-#                                    script handler: none of the script rules
+#                                    JavaScript handler: none of the script rules
 #                                    fire, only the rendered body text survives.
 #
 #  * handler_javascript_attach     - a *.js file attached as application/octet-
 #                                    stream.  The js->text/javascript file-type
-#                                    mapping routes it straight to the script
+#                                    mapping routes it straight to the JavaScript
 #                                    handler, so script rules DO fire.
 #
 #  * handler_javascript_html_attach - a text/html ATTACHMENT (Content-Disposition:
@@ -25,36 +25,27 @@ use Test::More;
 #                                    and an overlong token.  Attachment HTML is
 #                                    scrutinised, so script rules DO fire.
 #
-#  * handler_vbscript_attach       - a *.vbs file; the vbs->text/vbscript file-type
-#                                    mapping routes it to this same handler, so its
-#                                    text reaches the shared 'script' rules.
-#
-#  * handler_vbscript_alias        - an application/vbscript attachment named *.dat
-#                                    (unmapped extension); the MIME alias routes it
-#                                    to the handler.  Together these prove VBScript
-#                                    and JavaScript share one 'script' rule type.
-#
 # The handler is pure Perl (no external binary), so this test runs everywhere.
 
-plan tests => 23;
+plan tests => 17;
 
 tstpre ("
   loadhandler Mail::SpamAssassin::Handler::HTML
-  loadhandler Mail::SpamAssassin::Handler::Script
+  loadhandler Mail::SpamAssassin::Handler::JavaScript
 ");
 
 tstlocalrules ('
   script JS_SENTINEL      /JSSENTINEL/
   score  JS_SENTINEL      1.0
-  describe JS_SENTINEL    script tag text reached the script handler
+  describe JS_SENTINEL    script tag text reached the JavaScript handler
 
   script JS_URI           /JSURI_SENTINEL/
   score  JS_URI           1.0
-  describe JS_URI         javascript: URI reached the script handler
+  describe JS_URI         javascript: URI reached the JavaScript handler
 
   script JS_ONERROR       /onErrorSentinel/
   score  JS_ONERROR       1.0
-  describe JS_ONERROR     event-handler attribute reached the script handler
+  describe JS_ONERROR     event-handler attribute reached the JavaScript handler
 
   script JS_ATOB          /\b(atob|eval)\(/
   score  JS_ATOB          1.0
@@ -63,14 +54,6 @@ tstlocalrules ('
   script JS_HAS_RECIP     eval:check_script_contains_recip_addr()
   score  JS_HAS_RECIP     1.0
   describe JS_HAS_RECIP   recipient address appears in script
-
-  script VBS_SENTINEL     /VBSSENTINEL/
-  score  VBS_SENTINEL     1.0
-  describe VBS_SENTINEL   VBScript text reached the (shared) script handler
-
-  script VBS_SHELL        /CreateObject\(/
-  score  VBS_SHELL        1.0
-  describe VBS_SHELL      WScript.Shell instantiation seen in script
 
   body   JS_ORIG          /ORIGINAL_BODY_MARKER/
   score  JS_ORIG          1.0
@@ -123,7 +106,7 @@ ok_all_patterns();
 # --- HTML ATTACHMENT with inline SVG: on* handlers on non-HTML tags -----------
 # The attached page's only script is an onclick= on an SVG <rect> and an
 # onmouseover= on a made-up <foo> tag -- neither is a known HTML element, but
-# browsers run their handlers, so both must reach the script handler.
+# browsers run their handlers, so both must reach the JavaScript handler.
 %anti_patterns = ();
 %patterns = (
   ' 1.0 JS_SENTINEL ',  'svg_rect_onclick',
@@ -131,28 +114,4 @@ ok_all_patterns();
   ' 1.0 JS_ONERROR ',   'custom_tag_onmouseover',
 );
 ok (sarun ("-L -t < data/nice/handler_javascript_svg_attach", \&patterns_run_cb));
-ok_all_patterns();
-
-# --- attached *.vbs: VBScript shares the one 'script' stream/rule type --------
-# A .vbs attachment maps to text/vbscript, which this same handler now handles.
-# Its text must reach the same 'script' rules as JavaScript -- the file
-# extension is not a reliable signal of the language inside, so one rule type
-# scans both.
-%anti_patterns = ();
-%patterns = (
-  ' 1.0 VBS_SENTINEL ',  'vbs_attach_script',
-  ' 1.0 VBS_SHELL ',     'vbs_attach_shell',
-);
-ok (sarun ("-L -t < data/nice/handler_vbscript_attach", \&patterns_run_cb));
-ok_all_patterns();
-
-# --- attached application/vbscript (named *.dat, unmapped extension) ----------
-# The application/vbscript -> text/vbscript alias routes the part to the shared
-# script handler even though the filename (.dat) would not.
-%anti_patterns = ();
-%patterns = (
-  ' 1.0 VBS_SENTINEL ',  'vbs_alias_script',
-  ' 1.0 VBS_SHELL ',     'vbs_alias_shell',
-);
-ok (sarun ("-L -t < data/nice/handler_vbscript_alias", \&patterns_run_cb));
 ok_all_patterns();
