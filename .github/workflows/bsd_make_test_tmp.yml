@@ -1,0 +1,112 @@
+name: SpamAssassin make test on OpenBSD, NetBSD, DragonFly (temporary)
+
+# Throwaway: runs make test in OpenBSD, NetBSD and DragonFly VMs (vmactions,
+# QEMU on an Ubuntu runner) as an unprivileged user, with long, net and
+# prefork stress tests on. Reverted after the run. The VM step always exits 0
+# so that t/log is copied back; the last step fails the job if make test did.
+
+on:
+    workflow_dispatch:
+    push:
+      branches: [ gha-windows-coverage ]
+      paths: [ '.github/workflows/bsd_make_test_tmp.yml' ]
+
+jobs:
+  bsd:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ openbsd, netbsd, dragonflybsd ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    name: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Write the setup and test scripts
+      run: |
+        mkdir -p .bsdci
+        cat > .bsdci/setup.sh <<'EOF'
+        # Runs as root in the VM: packages, test user, CPAN fill-in for required modules
+        os=$(uname -s)
+        mods="p5-Net-DNS p5-HTML-Parser p5-NetAddr-IP p5-Mail-DKIM p5-IO-Socket-SSL \
+          p5-IO-Socket-INET6 p5-Archive-Zip p5-DBI p5-DBD-SQLite p5-Mail-SPF p5-BSD-Resource \
+          p5-libwww p5-LWP-Protocol-https p5-HTTP-Daemon p5-Text-Diff p5-Net-CIDR-Lite \
+          p5-Encode-Detect p5-Email-Address-XS p5-Digest-SHA1 p5-Net-Patricia p5-Test-Pod \
+          p5-Devel-Cycle p5-IO-String p5-Geography-Countries p5-App-cpanminus re2c poppler-utils"
+        missing=""
+        case "$os" in
+          OpenBSD) for p in $mods; do pkg_add -I "$p" > /dev/null 2>&1 || missing="$missing $p"; done
+                   useradd -m -s /bin/sh satest ;;
+          NetBSD)  /usr/sbin/pkg_add perl > /dev/null 2>&1 || missing="$missing perl"
+                   for p in $mods; do /usr/sbin/pkg_add "$p" > /dev/null 2>&1 || missing="$missing $p"; done
+                   useradd -m -s /bin/sh satest ;;
+          *)       export ASSUME_ALWAYS_YES=yes; pkg install -y perl5 > /dev/null 2>&1 || missing="$missing perl5"
+                   for p in $mods; do pkg install -y "$p" > /dev/null 2>&1 || missing="$missing $p"; done
+                   pw useradd satest -m -s /bin/sh ;;
+        esac
+        echo "packages not installed:$missing"
+        PATH=$PATH:/usr/local/bin:/usr/pkg/bin
+        command -v cpanm && cpanm -n --installdeps . > /root/cpanm.log 2>&1 || { echo "cpanm installdeps failed"; tail -40 /root/cpanm.log; }
+        uname -a; perl -v | sed -n 2p
+        for m in Mail::DKIM Net::DNS NetAddr::IP IO::Socket::SSL HTML::Parser Archive::Zip DBD::SQLite; do
+          perl -M"$m" -e 'print "$ARGV[0] ", $ARGV[0]->VERSION, "\n"' "$m" 2>/dev/null || echo "$m not installed"
+        done
+        rm -rf /home/satest/sa; cp -Rp "$(pwd)" /home/satest/sa; chown -R satest /home/satest/sa
+        EOF
+        cat > .bsdci/test.sh <<'EOF'
+        # Runs as satest
+        PATH=$PATH:/usr/local/bin:/usr/pkg/bin
+        cd ~/sa || exit 1
+        perl -i.bak -pe 's/^run_(long_tests|net_tests|spamd_prefork_stress_test)=n/run_$1=y/' t/config.dist
+        (perl Makefile.PL ENABLE_SSL=yes < /dev/null && make) > ../build.log 2>&1 || { echo build-failed; tail -40 ../build.log; exit 1; }
+        date -u +'start %FT%TZ'
+        make test; rc=$?
+        date -u +'end %FT%TZ'
+        exit $rc
+        EOF
+
+    - name: OpenBSD
+      if: matrix.os == 'openbsd'
+      uses: vmactions/openbsd-vm@v1.4.9
+      with:
+        copyback: true
+        run: |
+          sh .bsdci/setup.sh
+          su -l satest -c 'sh ~/sa/.bsdci/test.sh'; echo $? > .bsdci/rc
+          tar cf .bsdci/t-log.tar -C /home/satest/sa/t log 2>/dev/null || true
+
+    - name: NetBSD
+      if: matrix.os == 'netbsd'
+      uses: vmactions/netbsd-vm@v1.5.3
+      with:
+        copyback: true
+        run: |
+          sh .bsdci/setup.sh
+          su -l satest -c 'sh ~/sa/.bsdci/test.sh'; echo $? > .bsdci/rc
+          tar cf .bsdci/t-log.tar -C /home/satest/sa/t log 2>/dev/null || true
+
+    - name: DragonFly
+      if: matrix.os == 'dragonflybsd'
+      uses: vmactions/dragonflybsd-vm@v1.3.4
+      with:
+        copyback: true
+        run: |
+          sh .bsdci/setup.sh
+          su -l satest -c 'sh ~/sa/.bsdci/test.sh'; echo $? > .bsdci/rc
+          tar cf .bsdci/t-log.tar -C /home/satest/sa/t log 2>/dev/null || true
+
+    - name: Publish t/log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.os }}_t_log
+        path: .bsdci/t-log.tar
+        if-no-files-found: ignore
+
+    - name: Result of make test
+      run: |
+        rc=$(cat .bsdci/rc 2>/dev/null || echo missing)
+        echo "make test exit: $rc"
+        [ "$rc" = 0 ]
