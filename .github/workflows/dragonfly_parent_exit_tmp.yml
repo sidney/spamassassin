@@ -1,0 +1,137 @@
+name: DragonFly spamd parent exit trace (temporary)
+
+# Throwaway diagnostic: on DragonFly the spamd parent sometimes ends with no
+# log line during t/spamd_prefork_stress_4.t. Run that test ten times on
+# current apache/spamassassin trunk with spamd started through a wrapper
+# (SATest's SPAMD_FORKER) that logs how the parent process ended and any
+# signal the wrapper itself receives. One job also ktraces the parent (not
+# its children). Reverted afterwards.
+
+on:
+    workflow_dispatch:
+    push:
+      branches: [ gha-windows-coverage ]
+      paths: [ '.github/workflows/dragonfly_parent_exit_tmp.yml' ]
+
+jobs:
+  trace:
+    strategy:
+      fail-fast: false
+      matrix:
+        ktrace: [ 'no', 'yes' ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    name: DragonFly stress_4 x10, ktrace ${{ matrix.ktrace }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/checkout@v4
+      with:
+        repository: apache/spamassassin
+        ref: trunk
+        path: .dfly/sa
+
+    - name: Write the wrapper and test script
+      run: |
+        git -C .dfly/sa log -1 --format='trunk: %h %cI %s'
+        echo "${{ matrix.ktrace }}" > .dfly/ktrace
+        cat > .dfly/wrap.pl <<'EOF'
+        # SPAMD_FORKER wrapper: wrap.pl DIR KTRACE|- PERL SATest.pl ...
+        # Runs the command (under "ktrace -t cns", parent only, unless KTRACE
+        # is -), logs signals the wrapper receives, and logs how the
+        # command's process ended. The child gets the wrapper's inherited
+        # signal dispositions back before exec.
+        use strict; use warnings;
+        use POSIX qw(strftime);
+        use Time::HiRes qw(time);
+        my ($dir, $kt, @cmd) = @ARGV;
+        sub logit {
+          my $t = time;
+          open(my $fh, '>>', "$dir/wrap.log") or return;
+          printf $fh "%s.%03d wrapper %d: %s\n", strftime('%H:%M:%S', gmtime $t),
+            ($t - int $t) * 1000, $$, $_[0];
+          close $fh;
+        }
+        my @sigs = grep { exists $SIG{$_} } qw(HUP INT QUIT USR1 USR2 ALRM TERM
+          PIPE TTIN TTOU XCPU XFSZ VTALRM PROF WINCH INFO);
+        my %orig = map { $_ => $SIG{$_} } @sigs;
+        logit("inherited IGNORE: " . join(' ', grep { defined $orig{$_} && $orig{$_} eq 'IGNORE' } @sigs));
+        $SIG{$_} = sub { logit("received SIG$_[0]") } for @sigs;
+        my $pid = fork;
+        defined $pid or die "fork: $!";
+        if (!$pid) {
+          $SIG{$_} = (defined $orig{$_} && $orig{$_} eq 'IGNORE') ? 'IGNORE' : 'DEFAULT' for @sigs;
+          if ($kt ne '-') { exec $kt, '-f', "$dir/kt.$$", '-t', 'cns', @cmd }
+          else { exec @cmd }
+          die "exec: $!";
+        }
+        logit("started $pid, ppid of wrapper " . getppid() . ": @cmd[0..2]");
+        waitpid($pid, 0);
+        my $st = $?;
+        logit(sprintf("pid %d ended: wait status %d, exit %d, signal %d%s",
+          $pid, $st, $st >> 8, $st & 127, ($st & 128) ? ', core dumped' : ''));
+        EOF
+        cat > .dfly/test.sh <<'EOF'
+        # Runs as satest: build without SSL, run t/spamd_prefork_stress_4.t ten times
+        PATH=$PATH:/usr/local/bin
+        kt=-; [ "$(cat ~/dfly/ktrace)" = yes ] && kt=$(command -v ktrace)
+        perl=$(command -v perl)
+        echo "ktrace: $kt, perl: $perl"
+        ulimit -c unlimited
+        cd ~/sa || exit 1
+        perl -i.bak -pe 's/^run_(long_tests|spamd_prefork_stress_test)=n/run_$1=y/' t/config.dist
+        (perl Makefile.PL < /dev/null && make) > ../build.log 2>&1 || { echo build-failed; tail -30 ../build.log; exit 1; }
+        fails=0
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+          d=$HOME/out/run$i; mkdir -p $d
+          export SPAMD_FORKER="$perl $HOME/dfly/wrap.pl $d $kt $perl"
+          perl -T -I. -Iblib/lib -It t/spamd_prefork_stress_4.t > $d/test.out 2>&1; rc=$?
+          echo "run $i: exit $rc, $(grep -c '^not ok' $d/test.out) not ok, $(date -u +%T)"
+          cat $d/wrap.log
+          if [ $rc -ne 0 ]; then
+            fails=$((fails+1))
+            grep -E '^not ok' $d/test.out | head -3
+            for f in $d/kt.*; do
+              [ -f "$f" ] || continue
+              echo "--- last kdump records of $f"
+              kdump -T -f "$f" > $d/kdump.txt 2>&1 || kdump -f "$f" > $d/kdump.txt 2>&1
+              tail -400 $d/kdump.txt > $d/kdump-tail.txt; gzip $d/kdump.txt
+              tail -60 $d/kdump-tail.txt
+            done
+            tar cf $d/t-log.tar -C ~/sa/t log 2>/dev/null
+          fi
+          rm -f $d/kt.*
+          rm -rf ~/sa/t/log/spamd_prefork_stress_4.*
+          find ~/sa -name '*.core' -newer $d/test.out -print
+        done
+        echo "failed runs: $fails of 10"
+        EOF
+
+    - name: DragonFly
+      uses: vmactions/dragonflybsd-vm@v1.3.4
+      with:
+        copyback: true
+        run: |
+          export ASSUME_ALWAYS_YES=yes
+          pkg install -y perl5 p5-Net-DNS p5-HTML-Parser p5-NetAddr-IP p5-Mail-DKIM p5-Archive-Zip p5-DBI p5-DBD-SQLite p5-libwww p5-Digest-SHA1 p5-App-cpanminus > /dev/null 2>&1
+          pw useradd satest -m -s /bin/sh
+          uname -a; perl -v | sed -n 2p; sysctl -n hw.ncpu hw.physmem
+          sysctl kern.logsigexit=1 || true
+          rm -rf /home/satest/sa /home/satest/dfly /home/satest/out
+          cp -Rp .dfly/sa /home/satest/sa; mkdir /home/satest/dfly
+          cp .dfly/wrap.pl .dfly/test.sh .dfly/ktrace /home/satest/dfly/
+          chown -R satest /home/satest/sa /home/satest/dfly
+          su -l satest -c 'sh ~/dfly/test.sh' || true
+          echo "--- kernel messages about signals"
+          dmesg | grep -i -E 'signal|core|killed|out of swap|pid [0-9]+ \(perl' | tail -20 || true
+          grep -i -E 'signal|core dumped|killed' /var/log/messages | tail -20 || true
+          tar cf .dfly/out.tar -C /home/satest out 2>/dev/null || true
+
+    - name: Publish the run outputs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: dragonfly_parent_exit_ktrace_${{ matrix.ktrace }}
+        path: .dfly/out.tar
+        if-no-files-found: ignore
