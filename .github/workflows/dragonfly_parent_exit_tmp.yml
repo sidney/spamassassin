@@ -1,13 +1,12 @@
-name: DragonFly spamd parent exit trace (temporary)
+name: DragonFly spamd parent exit, Timeout.pm fix and alarm() check (temporary)
 
-# Throwaway diagnostic: on DragonFly the spamd parent sometimes ends during
-# t/spamd_prefork_stress_4.t. Run 45237854957 showed SIGALRM with no handler
-# installed, after Mail::SpamAssassin::Timeout started taking its "outer
-# timer" branch in the parent's select() loop. This run tells the two
-# possible causes apart: job "instrumented" runs the test ten times on
-# current trunk with Timeout.pm logging alarm(0)'s raw return value and its
-# expiration stack whenever either is non-empty; job "alarmtest" checks
-# DragonFly's alarm() with a small C program. Reverted afterwards.
+# Throwaway diagnostic. On DragonFly, alarm() can report a timer that is not
+# there just after a fork; Timeout.pm took that as an outer timer and left a
+# handler-less alarm that killed the spamd parent (runs 45237854957 and
+# 45241037165). Job "dragonfly-fixed" runs t/spamd_prefork_stress_4.t ten
+# times on current trunk with .github/dfly/timeout-alarm-handler.p1.diff
+# applied. The "alarm-*" jobs run .github/dfly/alarmtest.c on other systems
+# to see whether any of them report such timers. Reverted afterwards.
 
 on:
     workflow_dispatch:
@@ -16,19 +15,20 @@ on:
       paths: [ '.github/workflows/dragonfly_parent_exit_tmp.yml' ]
 
 jobs:
-  trace:
+  check:
     strategy:
       fail-fast: false
       matrix:
-        job: [ 'instrumented', 'alarmtest' ]
-    runs-on: ubuntu-latest
+        job: [ 'dragonfly-fixed', 'alarm-freebsd', 'alarm-openbsd', 'alarm-netbsd', 'alarm-macos', 'alarm-ubuntu' ]
+    runs-on: ${{ matrix.job == 'alarm-macos' && 'macos-latest' || 'ubuntu-latest' }}
     timeout-minutes: 120
-    name: DragonFly ${{ matrix.job }}
+    name: ${{ matrix.job }}
 
     steps:
     - uses: actions/checkout@v4
 
     - uses: actions/checkout@v4
+      if: matrix.job == 'dragonfly-fixed'
       with:
         repository: apache/spamassassin
         ref: trunk
@@ -36,44 +36,26 @@ jobs:
 
     - name: Write the scripts
       run: |
-        git -C .dfly/sa log -1 --format='trunk: %h %cI %s'
-        echo "${{ matrix.job }}" > .dfly/job
-        # Timeout.pm: log the raw alarm(0) value and the expiration stack
-        perl -0pi -e 's/(    \$oldalarm = alarm\(0\);  # 0 when disarmed, undef on error\n)/$1    { my (\$raw, \$n) = (\$oldalarm, scalar \@expiration); my \$top = \$n ? \$expiration[0] : undef; if (\$raw || \$n) { eval { my \$tfh; open(\$tfh, ">>", "\/tmp\/sa-timeout-trace.log") and printf \$tfh "%.6f pid %d id %s secs %s raw_alarm0 %s nexp %d top %s\\n", \$start_time, \$\$, \$id, \$secs, (defined \$raw ? \$raw : "undef"), \$n, (defined \$top ? sprintf("%.6f", \$top) : "undef"); 1 } } }\n/ or die "anchor not found"' .dfly/sa/lib/Mail/SpamAssassin/Timeout.pm
-        git -C .dfly/sa diff --stat
-        cat > .dfly/wrap.pl <<'EOF'
-        # SPAMD_FORKER wrapper: wrap.pl DIR - PERL SATest.pl ...
-        # Runs the command, logs signals the wrapper receives and how the
-        # command's process ended. The child gets the wrapper's inherited
-        # signal dispositions back before exec.
-        use strict; use warnings;
-        use POSIX qw(strftime);
-        use Time::HiRes qw(time);
-        my ($dir, $kt, @cmd) = @ARGV;
-        sub logit {
-          my $t = time;
-          open(my $fh, '>>', "$dir/wrap.log") or return;
-          printf $fh "%s.%03d wrapper %d: %s\n", strftime('%H:%M:%S', gmtime $t),
-            ($t - int $t) * 1000, $$, $_[0];
-          close $fh;
-        }
-        my @sigs = grep { exists $SIG{$_} } qw(HUP INT QUIT USR1 USR2 ALRM TERM
-          PIPE TTIN TTOU XCPU XFSZ VTALRM PROF WINCH INFO);
-        my %orig = map { $_ => $SIG{$_} } @sigs;
-        $SIG{$_} = sub { logit("received SIG$_[0]") } for @sigs;
-        my $pid = fork;
-        defined $pid or die "fork: $!";
-        if (!$pid) {
-          $SIG{$_} = (defined $orig{$_} && $orig{$_} eq 'IGNORE') ? 'IGNORE' : 'DEFAULT' for @sigs;
-          exec @cmd;
-          die "exec: $!";
-        }
-        logit("started $pid");
-        waitpid($pid, 0);
-        my $st = $?;
-        logit(sprintf("pid %d ended: wait status %d, exit %d, signal %d%s",
-          $pid, $st, $st >> 8, $st & 127, ($st & 128) ? ', core dumped' : ''));
+        mkdir -p .dfly
+        cp .github/dfly/alarmtest.c .github/dfly/wrap.pl .dfly/
+        cat > .dfly/alarm.sh <<'EOF'
+        # Build and run alarmtest: one process without children, one with a
+        # child every 5 iterations, four at once with children
+        uname -a
+        cc -O2 -o /tmp/alarmtest .dfly/alarmtest.c || { echo "cc failed"; exit 0; }
+        echo "--- one process, no children"
+        /tmp/alarmtest 20000 0 | tail -5
+        echo "--- one process, a child every 5 iterations"
+        /tmp/alarmtest 20000 5 | tail -5
+        echo "--- four processes at once, a child every 5 iterations"
+        for k in 1 2 3 4; do /tmp/alarmtest 20000 5 > /tmp/at.$k & done; wait
+        for k in 1 2 3 4; do tail -3 /tmp/at.$k; done
         EOF
+        if [ -d .dfly/sa ]; then
+          git -C .dfly/sa log -1 --format='trunk: %h %cI %s'
+          (cd .dfly/sa && patch -p1 --fuzz=0 --no-backup-if-mismatch < ../../.github/dfly/timeout-alarm-handler.p1.diff)
+          git -C .dfly/sa diff --stat
+        fi
         cat > .dfly/test.sh <<'EOF'
         # Runs as satest: build without SSL, run t/spamd_prefork_stress_4.t ten times
         PATH=$PATH:/usr/local/bin
@@ -81,106 +63,35 @@ jobs:
         cd ~/sa || exit 1
         perl -i.bak -pe 's/^run_(long_tests|spamd_prefork_stress_test)=n/run_$1=y/' t/config.dist
         (perl Makefile.PL < /dev/null && make) > ../build.log 2>&1 || { echo build-failed; tail -30 ../build.log; exit 1; }
-        grep -c sa-timeout-trace blib/lib/Mail/SpamAssassin/Timeout.pm
+        grep -c 'ignoring an alarm with no handler' blib/lib/Mail/SpamAssassin/Timeout.pm
         fails=0
         for i in 1 2 3 4 5 6 7 8 9 10; do
           d=$HOME/out/run$i; mkdir -p $d
-          rm -f /tmp/sa-timeout-trace.log
           export SPAMD_FORKER="$perl $HOME/dfly/wrap.pl $d - $perl"
           perl -T -I. -Iblib/lib -It t/spamd_prefork_stress_4.t > $d/test.out 2>&1; rc=$?
           echo "run $i: exit $rc, $(grep -c '^not ok' $d/test.out) not ok, $(date -u +%T)"
-          cat $d/wrap.log
-          ppid=$(sed -n 's/.*: started \([0-9]*\)$/\1/p' $d/wrap.log | head -1)
-          echo "spamd parent $ppid: $(grep -c " pid $ppid " /tmp/sa-timeout-trace.log 2>/dev/null) Timeout.pm trace lines, all pids $(wc -l < /tmp/sa-timeout-trace.log 2>/dev/null)"
-          grep " pid $ppid " /tmp/sa-timeout-trace.log > $d/timeout-parent.log 2>/dev/null
-          head -5 $d/timeout-parent.log; echo ...; tail -5 $d/timeout-parent.log
-          gzip -c /tmp/sa-timeout-trace.log > $d/timeout-all.log.gz 2>/dev/null
+          grep ended $d/wrap.log
+          echo "  'ignoring an alarm' lines in spamd's log: $(cat ~/sa/t/log/spamd_prefork_stress_4.*/d.spamd_prefork_stress_4/spamd.err.0 2>/dev/null | grep -c 'ignoring an alarm with no handler')"
           if [ $rc -ne 0 ]; then
             fails=$((fails+1))
+            grep -E '^not ok' $d/test.out | head -3
             tar cf $d/t-log.tar -C ~/sa/t log 2>/dev/null
           fi
           rm -rf ~/sa/t/log/spamd_prefork_stress_4.*
         done
         echo "failed runs: $fails of 10"
         EOF
-        cat > .dfly/alarmtest.c <<'EOF'
-        /* alarmtest ITERS FORKEVERY: alarm(64), short sleep, alarm(0), alarm(0);
-           the second alarm(0), and the next alarm(64), must return 0.
-           FORKEVERY > 0 forks a child every FORKEVERY iterations that sets
-           and clears its own alarms and exits. */
-        #include <errno.h>
-        #include <signal.h>
-        #include <stdio.h>
-        #include <stdlib.h>
-        #include <string.h>
-        #include <sys/wait.h>
-        #include <unistd.h>
 
-        static volatile sig_atomic_t alrm;
-        static void onalrm(int s) { (void)s; alrm++; }
-        static void onchld(int s) {
-          int e = errno; (void)s;
-          while (waitpid(-1, NULL, WNOHANG) > 0) ;
-          errno = e;
-        }
-
-        int main(int argc, char **argv) {
-          int iters = argc > 1 ? atoi(argv[1]) : 5000;
-          int forkevery = argc > 2 ? atoi(argv[2]) : 0;
-          struct sigaction sa;
-          int i, j, bad = 0;
-          memset(&sa, 0, sizeof sa);
-          sa.sa_handler = onalrm; sigaction(SIGALRM, &sa, NULL);
-          sa.sa_handler = onchld; sa.sa_flags = SA_RESTART; sigaction(SIGCHLD, &sa, NULL);
-          srandom(getpid());
-          for (i = 0; i < iters; i++) {
-            unsigned r0, r1, r2;
-            if (forkevery && i % forkevery == 0) {
-              if (fork() == 0) {
-                for (j = 0; j < 20; j++) {
-                  alarm(1 + random() % 300); usleep(random() % 5000); alarm(0);
-                }
-                _exit(0);
-              }
-            }
-            r0 = alarm(64);
-            usleep(random() % 3000);
-            r1 = alarm(0);
-            r2 = alarm(0);
-            if (r0 || r2 || !r1) {
-              bad++;
-              printf("pid %d iter %d: alarm(64) returned %u, then alarm(0) %u, alarm(0) %u\n",
-                     (int)getpid(), i, r0, r1, r2);
-              fflush(stdout);
-            }
-          }
-          printf("pid %d done: %d iterations, fork every %d, %d anomalies, %d SIGALRM\n",
-                 (int)getpid(), iters, forkevery, bad, (int)alrm);
-          return 0;
-        }
-        EOF
-
-    - name: DragonFly
+    - name: DragonFly, trunk with the Timeout.pm fix
+      if: matrix.job == 'dragonfly-fixed'
       uses: vmactions/dragonflybsd-vm@v1.3.4
       with:
         copyback: true
         run: |
-          uname -a; sysctl -n hw.ncpu hw.physmem
-          if [ "$(cat .dfly/job)" = alarmtest ]; then
-            cc -O2 -o /tmp/alarmtest .dfly/alarmtest.c || exit 0
-            echo "--- one process, no children"
-            /tmp/alarmtest 20000 0 | tail -20
-            echo "--- one process, a child every 5 iterations"
-            /tmp/alarmtest 20000 5 | tail -20
-            echo "--- four processes at once, a child every 5 iterations"
-            for k in 1 2 3 4; do /tmp/alarmtest 20000 5 > /tmp/at.$k & done; wait
-            for k in 1 2 3 4; do tail -20 /tmp/at.$k; done
-            exit 0
-          fi
           export ASSUME_ALWAYS_YES=yes
           pkg install -y perl5 p5-Net-DNS p5-HTML-Parser p5-NetAddr-IP p5-Mail-DKIM p5-Archive-Zip p5-DBI p5-DBD-SQLite p5-libwww p5-Digest-SHA1 p5-App-cpanminus > /dev/null 2>&1
           pw useradd satest -m -s /bin/sh
-          perl -v | sed -n 2p
+          uname -a; perl -v | sed -n 2p; sysctl -n hw.ncpu
           rm -rf /home/satest/sa /home/satest/dfly /home/satest/out
           cp -Rp .dfly/sa /home/satest/sa; mkdir /home/satest/dfly
           cp .dfly/wrap.pl .dfly/test.sh /home/satest/dfly/
@@ -188,10 +99,32 @@ jobs:
           su -l satest -c 'sh ~/dfly/test.sh' || true
           tar cf .dfly/out.tar -C /home/satest out 2>/dev/null || true
 
+    - name: FreeBSD alarm()
+      if: matrix.job == 'alarm-freebsd'
+      uses: vmactions/freebsd-vm@v1.6.0
+      with:
+        run: sh .dfly/alarm.sh
+
+    - name: OpenBSD alarm()
+      if: matrix.job == 'alarm-openbsd'
+      uses: vmactions/openbsd-vm@v1.4.9
+      with:
+        run: sh .dfly/alarm.sh
+
+    - name: NetBSD alarm()
+      if: matrix.job == 'alarm-netbsd'
+      uses: vmactions/netbsd-vm@v1.5.3
+      with:
+        run: sh .dfly/alarm.sh
+
+    - name: macOS or Ubuntu alarm()
+      if: matrix.job == 'alarm-macos' || matrix.job == 'alarm-ubuntu'
+      run: sh .dfly/alarm.sh
+
     - name: Publish the run outputs
-      if: always()
+      if: always() && matrix.job == 'dragonfly-fixed'
       uses: actions/upload-artifact@v4
       with:
-        name: dragonfly_parent_exit_${{ matrix.job }}
+        name: dragonfly_fixed
         path: .dfly/out.tar
         if-no-files-found: ignore

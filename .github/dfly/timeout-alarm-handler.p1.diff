@@ -1,0 +1,19 @@
+--- a/lib/Mail/SpamAssassin/Timeout.pm	(trunk r1940712)
++++ b/lib/Mail/SpamAssassin/Timeout.pm	(working copy)
+@@ -185,6 +185,16 @@
+     #     !$oldalarm ? '' : sprintf(", reported as %.3f s", $oldalarm));
+       $oldalarm = $oldalarm2 < 1 ? 1 : $oldalarm2;
+     }
++    # an alarm that no timer here has set counts as an outer timer only if
++    # something handles SIGALRM (DragonFly can report a timer that is not
++    # there, after a fork)
++    if ($oldalarm && (!@expiration || !defined $expiration[0])) {
++      my $h = $SIG{ALRM};
++      if (!defined $h || $h eq '' || $h eq 'DEFAULT' || $h eq 'IGNORE') {
++        dbg("timed: %s ignoring an alarm with no handler, %s s left", $id, $oldalarm);
++        $oldalarm = 0;
++      }
++    }
+     $self->{end_time} = $start_time + $secs;  # needed by reset()
+     # Re-arm before dying: the die is often caught by an inner eval (the one
+     # around HTML::Parser::parse, around HTML::Color->new, call_plugins()...)
