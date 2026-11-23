@@ -7,6 +7,11 @@ name: SpamAssassin make test on OpenBSD, NetBSD, DragonFly (temporary)
 
 on:
     workflow_dispatch:
+      inputs:
+        oses:
+          description: 'JSON list of VMs to run'
+          required: false
+          default: '["openbsd", "netbsd", "dragonflybsd"]'
     push:
       branches: [ gha-windows-coverage ]
       paths: [ '.github/workflows/bsd_make_test_tmp.yml' ]
@@ -16,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ openbsd, netbsd, dragonflybsd ]
+        os: ${{ fromJSON(github.event.inputs.oses || '["openbsd", "netbsd", "dragonflybsd"]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     name: ${{ matrix.os }}
@@ -60,7 +65,10 @@ jobs:
         PATH=$PATH:/usr/local/bin:/usr/pkg/bin
         cd ~/sa || exit 1
         perl -i.bak -pe 's/^run_(long_tests|net_tests|spamd_prefork_stress_test)=n/run_$1=y/' t/config.dist
-        (perl Makefile.PL ENABLE_SSL=yes < /dev/null && make) > ../build.log 2>&1 || { echo build-failed; tail -40 ../build.log; exit 1; }
+        # DragonFly 6.4 has no OpenSSL headers for spamc: build it without SSL there
+        ssl=ENABLE_SSL=yes; [ "$(uname -s)" = DragonFly ] && ssl=""
+        echo "Makefile.PL $ssl"
+        (perl Makefile.PL $ssl < /dev/null && make) > ../build.log 2>&1 || { echo build-failed; tail -40 ../build.log; exit 1; }
         date -u +'start %FT%TZ'
         make test; rc=$?
         date -u +'end %FT%TZ'
@@ -74,7 +82,7 @@ jobs:
         copyback: true
         run: |
           sh .bsdci/setup.sh
-          su -l satest -c 'sh ~/sa/.bsdci/test.sh'; echo $? > .bsdci/rc
+          rc=0; su -l satest -c 'sh ~/sa/.bsdci/test.sh' || rc=$?; echo $rc > .bsdci/rc
           tar cf .bsdci/t-log.tar -C /home/satest/sa/t log 2>/dev/null || true
 
     - name: NetBSD
@@ -84,7 +92,7 @@ jobs:
         copyback: true
         run: |
           sh .bsdci/setup.sh
-          su -l satest -c 'sh ~/sa/.bsdci/test.sh'; echo $? > .bsdci/rc
+          rc=0; su -l satest -c 'sh ~/sa/.bsdci/test.sh' || rc=$?; echo $rc > .bsdci/rc
           tar cf .bsdci/t-log.tar -C /home/satest/sa/t log 2>/dev/null || true
 
     - name: DragonFly
@@ -94,7 +102,7 @@ jobs:
         copyback: true
         run: |
           sh .bsdci/setup.sh
-          su -l satest -c 'sh ~/sa/.bsdci/test.sh'; echo $? > .bsdci/rc
+          rc=0; su -l satest -c 'sh ~/sa/.bsdci/test.sh' || rc=$?; echo $rc > .bsdci/rc
           tar cf .bsdci/t-log.tar -C /home/satest/sa/t log 2>/dev/null || true
 
     - name: Publish t/log
