@@ -1,8 +1,6 @@
 Note for Users Upgrading to SpamAssassin 4.0.3
 ----------------------------------------------
 
-- SpamAssassin now requires HTML::Parser 3.72 or later.
-
 - Mail::SpamAssassin::Plugin::DecodeShortURLs has been merged into
   Mail::SpamAssassin::Plugin::Redirectors and is now a deprecated
   compatibility shim; all url_shortener*/short_url* settings and rules
@@ -26,10 +24,6 @@ Note for Users Upgrading to SpamAssassin 4.0.3
   preferences. Move any of these from users' preferences to the site
   configuration.
 
-- Mail::SpamAssassin::Plugin::OLEVBMacro no longer uses IO::String, and
-  needs Archive::Zip 1.34 or later to check zip files and Office Open XML
-  documents.
-
 - dns_available, dns_server, dns_options, dns_query_restriction,
   lock_method, bayes_sql_override_username, user_awl_sql_override_username,
   spamcop_relayhost, asn_lookup and asn_lookup_ipv6 (which needed
@@ -40,8 +34,6 @@ Note for Users Upgrading to SpamAssassin 4.0.3
   of these from users' preferences to the site configuration. Setting
   bayes_sql_override_username or user_awl_sql_override_username in users'
   preferences to group users' SQL data no longer works.
-
-- spamd --ssl now needs IO::Socket::SSL 1.994 or later.
 
 - Mail::SpamAssassin::Plugin::ExtractText now has the possibility
   to cache results in order to speedup attachment processing.
@@ -99,13 +91,6 @@ Note for Users Upgrading to SpamAssassin 4.0.3
   If no AuthRes results are available or the policy is missing, the plugin
   falls back to its own Mail::DMARC::PurePerl-based validation as before.
 
-- Mail::SpamAssassin::Plugin::DMARC now makes its DNS lookups through
-  SpamAssassin's resolver, so they go to the dns_server servers like
-  SpamAssassin's other lookups. Before, Mail::DMARC used the system's name
-  servers even when dns_server was set. The new dmarc_timeout setting
-  (default 10 seconds) limits how long the DMARC check can take, as
-  spf_timeout and dkim_timeout do for SPF and DKIM.
-
 - New configuration option: multipart_alternative_preferred_part
   When set to "text/html" or "text/plain", only the preferred part type
   from multipart/alternative sections will be used for rendered body text,
@@ -149,16 +134,16 @@ Note for Users Upgrading to SpamAssassin 4.0.3
   Mail::SpamAssassin::Handler class (itself a subclass of
   Mail::SpamAssassin::Plugin); see its documentation for the API.
 
-  Seven handlers ship with this release. HTML, Script, SVG and ICS
+  Seven handlers ship with this release. HTML, JavaScript, SVG and ICS
   are loaded by default from v403.pre; Image, PDF and Archive are included
   commented-out because they depend on external tools or non-core Perl
   modules (see below).
 
     * HTML (text/html) renders each HTML part and surfaces content that
       has no MIME part of its own -- inline data: images and embedded
-      script -- as child parts for the image and Script handlers. Body
-      script is inert and only surfaced when the HTML part is itself an
-      attachment.
+      JavaScript -- as child parts for the image and JavaScript
+      handlers. Body script is inert and only surfaced when the HTML
+      part is itself an attachment.
 
       IMPORTANT: this handler is now the only thing that renders HTML.
       If it is not loaded, text/html parts are not parsed at all: body
@@ -175,16 +160,16 @@ Note for Users Upgrading to SpamAssassin 4.0.3
       SpamAssassin warns once per process when a message contains a
       text/html part and no handler is registered for it.
 
-    * Script (text/javascript, text/vbscript) collects JavaScript and
-      VBScript text for the new "script" rule type (like rawbody rules)
-      and adds navigation/redirect URLs (e.g. window.location = '...')
-      to the URI detail list with type "script". Provides the
-      check_script_contains_recip_addr eval.
+    * JavaScript (text/javascript) collects script text for the new
+      "script" rule type (like rawbody rules) and adds navigation/
+      redirect URLs (e.g. window.location = '...') to the URI detail
+      list with type "script". Provides the check_script_contains_recip_addr
+      eval.
 
     * SVG (image/svg+xml) parses SVG attachments, exposing their text to
       the new "svgtext" rule type (kept separate from HTML body text),
       adding links to the URI detail list (type "svg"), and surfacing
-      embedded script for the Script handler. Provides the
+      embedded script for the JavaScript handler. Provides the
       check_svg_text_ratio eval, which flags a mostly-text "image" by the
       ratio of text words to graphics elements.
 
@@ -224,9 +209,9 @@ Note for Users Upgrading to SpamAssassin 4.0.3
     * Archive (application/zip, application/vnd.rar) opens zip and rar
       attachments and returns the files inside as child parts, which the
       framework re-dispatches to the other handlers by type. Provides the
-      check_archive_file_count eval. Zip uses the Archive::Zip module
-      (1.34 or later); rar shells out to RARLAB's unrar or unrar-free
-      0.2.0 or later (see archive_unrar_path).
+      check_archive_file_count eval. Zip uses the Archive::Zip module; rar
+      shells out to RARLAB's unrar or unrar-free 0.2.0 or later (see
+      archive_unrar_path).
 
 Note for Users Upgrading to SpamAssassin 4.0.2
 ----------------------------------------------

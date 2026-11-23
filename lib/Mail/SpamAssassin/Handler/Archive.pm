@@ -29,7 +29,7 @@ A MIME-part handler that opens C<zip> and C<rar> archive attachments, extracts a
 bounded number of the files inside, and returns each as a child part.  The
 handler framework then re-dispatches every extracted file by its
 C<effective_type> (filename extension first), so an C<inner.js> reaches the
-script handler, an C<inner.html> reaches the HTML handler, an C<inner.pdf>
+JavaScript handler, an C<inner.html> reaches the HTML handler, an C<inner.pdf>
 the PDF handler, an image the image handler, and a nested archive comes back to
 this handler -- all bounded by the framework's depth, part-count and byte
 budgets.
@@ -45,8 +45,8 @@ archive declares (see L</EVAL RULES>).
 
 =item zip
 
-Extraction uses L<Archive::Zip> 1.34 or later.  If it is not installed, the
-handler still loads (with a warning at startup) and skips zip archives.
+Extraction uses L<Archive::Zip>.  If it is not installed, the handler still
+loads (with a warning at startup) and skips zip archives.
 
 =item rar
 
@@ -115,11 +115,10 @@ our @ISA = qw(Mail::SpamAssassin::Handler);
 # default and the per-call-site fallback below.
 use constant DEFAULT_MAX_FILES => 2;
 
-# a rar member name with these characters (see
-# Mail::SpamAssassin::Util::helper_app_pipe_open), or starting with @, which
-# unrar reads as a list file, is not passed to unrar
+# a rar member name with these characters is not passed to unrar: see
+# Mail::SpamAssassin::Util::helper_app_pipe_open
 use constant UNSAFE_MEMBER_NAME =>
-  am_running_on_windows() ? qr/^\@|["&|<>^%!\x00-\x1f]/ : qr/^\@|"/;
+  am_running_on_windows() ? qr/["&|<>^%!\x00-\x1f]/ : qr/"/;
 
 sub log_dbg  { Mail::SpamAssassin::Logger::dbg ("archive: @_"); }
 sub log_warn { Mail::SpamAssassin::Logger::log_message('warn', "archive: @_"); }
@@ -148,7 +147,7 @@ sub new {
   # Warn once at startup if the zip backend is unavailable, so zip archives are
   # knowingly skipped rather than silently ignored.
   if (!Mail::SpamAssassin::Util::Zip::HAS_ARCHIVE_ZIP) {
-    log_warn("zip archives not supported, required module Archive::Zip 1.34 or later not available");
+    log_warn("zip archives not supported, required module Archive::Zip missing");
   }
   # unrar is resolved lazily in handle_rar (like pdftotext in Handler::PDF).
 
@@ -343,10 +342,6 @@ sub handle_rar {
   my @unsafe = grep { $_ =~ UNSAFE_MEMBER_NAME } @members;
   log_dbg("rar members skipped, unsafe for the command line: @unsafe") if @unsafe;
   @members = grep { $_ !~ UNSAFE_MEMBER_NAME } @members;
-  # one unrar p prints every member with a name, matched regardless of case
-  # on Windows, so ask for each name once
-  my %seen;
-  @members = grep { !$seen{am_running_on_windows() ? lc($_) : $_}++ } @members;
   splice(@members, $max) if @members > $max;
 
   my @parts;
@@ -456,16 +451,12 @@ sub _unrar_list {
 
 # Extract one member to stdout: `unrar p -inul -p- <archive> <member>` prints the
 # file's bytes with no UI noise and never prompts for a password (so
-# password-protected members simply fail and are skipped).  RARLAB's unrar
-# prints only the first member with the name unless given a -r switch, and -r-
-# lifts that without searching for other archives; unrar-free prints them all.
-# Returns the bytes, or undef on failure or if they exceed $limit, and the
-# number of bytes read.
+# password-protected members simply fail and are skipped).  Returns the bytes, or
+# undef on failure or if they exceed $limit, and the number of bytes read.
 sub _unrar_extract {
   my ($self, $pms, $bin, $arc_file, $member, $limit) = @_;
-  my @all = $self->{unrar_kind} eq 'rarlab' ? ('-r-') : ();
   my ($out, $produced) = $self->_run_unrar($pms, $limit, $bin, 'p', '-inul',
-                                           '-p-', @all, '--', $arc_file, $member);
+                                           '-p-', '--', $arc_file, $member);
   return (undef, $produced) if !defined $out || $produced > $limit;
   return ($out, $produced);
 }

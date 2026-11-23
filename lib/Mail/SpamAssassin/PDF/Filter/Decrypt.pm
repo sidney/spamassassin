@@ -100,8 +100,7 @@ sub decrypt {
         if ( $self->{V} == 4 || $self->{V} == 5 ) {
             # todo: Implement Crypt Filters besides the standard one
             if ( $self->{CF}->{'/StdCF'}->{'/CFM'} =~ /AES/ ) {
-                # untainted: CryptX rejects a tainted IV on older Perl
-                my ($iv) = substr($content,0,16) =~ /\A(.*)\z/s;
+                my $iv = substr($content,0,16);
                 my $m = Crypt::Mode::CBC->new('AES');
                 my $key = $self->_compute_key();
                 return $m->decrypt(substr($content,16),$key,$iv);

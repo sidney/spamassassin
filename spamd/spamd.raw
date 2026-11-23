@@ -313,7 +313,7 @@ sub print_version {
   printf("SpamAssassin Server version %s\n", Mail::SpamAssassin::Version());
   printf("  running on Perl %s\n",
          join(".", map( int($_||0), ($] =~ /(\d)\.(\d{3})(\d{3})?/) )));
-  eval { require IO::Socket::SSL; IO::Socket::SSL->VERSION(1.994); };
+  eval { require IO::Socket::SSL; };
   printf("  with SSL support (%s %s)\n", "IO::Socket::SSL", $IO::Socket::SSL::VERSION) unless ($@);
   eval { require Compress::Zlib; };
   printf("  with zlib support (%s %s)\n", "Compress::Zlib", $Compress::Zlib::VERSION) unless ($@);
@@ -1121,9 +1121,9 @@ sub server_sock_setup_inet {
                              && IO::Socket::IP->VERSION >= 0.09;
     if ($ssl) {
       if (!$have_ssl_module) {
-	eval { require IO::Socket::SSL; IO::Socket::SSL->VERSION(1.994); }
+	eval { require IO::Socket::SSL; }
 	or die "spamd: SSL encryption requested, ".
-	    "but IO::Socket::SSL 1.994 or later is unavailable ($@)\n";
+	    "but IO::Socket::SSL is unavailable ($@)\n";
 	$have_ssl_module = 1;
       }
       %sockopt = (%sockopt, (
@@ -1448,7 +1448,7 @@ sub spawn {
       # use the POSIX functions to hide the platform specific workarounds 
       dbg("spamd: Privilege de-escalation from user $< and groups $(\n");
       my $togids = "$ugid ".get_user_groups($uuid);
-      if (!gids_match($(, $togids) || !gids_match($), $togids)) {
+      if ($( ne $togids || $) ne $togids) {
         $! = 0; POSIX::setgid($ugid);  # set effective and real gid
         if ($!) { warn("spamd: POSIX::setgid $ugid failed: $!\n"); }
         $! = 0; $( = $ugid;
@@ -1676,8 +1676,7 @@ sub accept_a_conn {
   }
 
   # Bah!
-  if ( !$client ||
-       (!$client->isa('IO::Socket::UNIX') && !defined $client->connected()) ) {
+  if ( !$client  || !defined $client->connected() ) {
 
     # this can happen when interrupted by SIGCHLD on Solaris,
     # perl 5.8.0, and some other platforms with -m.
@@ -2651,18 +2650,6 @@ sub restore_euid {
   }
 }
 
-# true if a gid list like $( or $) has the wanted first gid and the wanted
-# groups; the OS decides the order of the groups
-sub gids_match {
-  my ($have, $want) = @_;
-  my ($have_gid, @have) = split(' ', $have);
-  my ($want_gid, @want) = split(' ', $want);
-  return 0 if $have_gid != $want_gid;
-  my %have = map { $_ => 1 } $have_gid, @have;
-  my %want = map { $_ => 1 } $want_gid, @want;
-  return join(' ', sort keys %have) eq join(' ', sort keys %want);
-}
-
 sub handle_user_setuid_basic {
   my $username = shift;
 
@@ -3304,7 +3291,7 @@ sub preload_modules_with_tmp_homedir {
 }
 
 # Keep calling syswrite until the entire buffer is written out
-# Retry if EAGAIN/EWOULDBLOCK/EINTR; a partial write is progress, not a retry
+# Retry if EAGAIN/EWOULDBLOCK or when partial buffer is written
 # Limit the number of retries to keep the execution time bounded
 sub syswrite_full_buffer {
   my ($sock, $buf, $numretries) = @_;
@@ -3312,38 +3299,30 @@ sub syswrite_full_buffer {
   my $length = length($buf);
   my $written = 0;
   my $try = 0;
-  my $err;
 
   while (($try < $numretries) && ($length > $written)) {
       my $nbytes = syswrite($sock, $buf, $length - $written, $written);
       if (!defined $nbytes) {
 	  unless ((exists &Errno::EAGAIN && $! == &Errno::EAGAIN)
-		  || (exists &Errno::EWOULDBLOCK && $! == &Errno::EWOULDBLOCK)
-		  || (exists &Errno::EINTR && $! == &Errno::EINTR))
+		  || (exists &Errno::EWOULDBLOCK && $! == &Errno::EWOULDBLOCK))
 	  {
 	      # an error that wasn't non-blocking I/O-related.  that's serious
-	      $err = "$!";
-	      last;
+	      return;
 	  }
 	  # errcode says to try again
-	  $try++;
       }
       else {
 
 	  if ($nbytes == 0) {
-	      last;  # stop if no error but nothing was written
+	      return $written;  # return early if no error but nothing was written
 	  }
 
 	  $written += $nbytes;
       }
+      $try++;
   }
 
-  if ($written < $length) {
-      warn "spamd: reply not sent in full, $written of $length bytes written" .
-	   (defined $err ? ": $err" : "") . "\n";
-      return if defined $err;
-  }
-  return $written;
+  return $written;      # it's complete, we can return
 }
 
 sub map_server_sockets {
@@ -3947,7 +3926,7 @@ home directory instead.
 =item B<--ssl>
 
 Accept only SSL connections on the associated port.
-The B<IO::Socket::SSL> perl module, version 1.994 or later, must be installed.
+The B<IO::Socket::SSL> perl module must be installed.
 
 When used without B<-i> / B<--listen> and without B<--ssl-port>, the single
 default listener (B<--port>) is converted to SSL.  When used together with

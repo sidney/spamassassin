@@ -855,10 +855,9 @@ e.g.
         return $MISSING_REQUIRED_VALUE;
       }
       my $listname = $1;  # corresponds to arg in check_uri_host_in_wblist()
-      my @addrs = split(/\s+/, $2);
       # note: must not factor out dereferencing, as otherwise
       # subhashes would spring up in a copy and be lost
-      $conf->{parser}->add_to_addrlist ($conf->addrlist_key($listname), @addrs);
+      $conf->{parser}->add_to_addrlist ($listname, split(/\s+/, $2));
     }
   });
 
@@ -5503,13 +5502,13 @@ sub trim_rules {
     push(@all_rules, $self->get_rule_keys($rule_type));
   }
 
-  my @rules_to_keep = grep(/$rec/, @all_rules);
+  my @rules_to_keep = grep(/$rec/o, @all_rules);
 
   if (@rules_to_keep == 0) {
     die "config: trim_rules: all rules excluded, nothing to test\n";
   }
 
-  my @meta_tests    = grep(/$rec/, $self->get_rule_keys('meta_tests'));
+  my @meta_tests    = grep(/$rec/o, $self->get_rule_keys('meta_tests'));
   foreach my $meta (@meta_tests) {
     push(@rules_to_keep, $self->add_meta_depends($meta))
   }
@@ -5748,16 +5747,6 @@ sub register_eval_rule {
 
 ###########################################################################
 
-# conf key of a list named in enlist_addrlist or check_*_in_list: an
-# address-list setting keeps its name, any other list is prefixed ENL_
-sub addrlist_key {
-  my ($self, $listname) = @_;
-  my $cmd = $self->{parser}->{command_luts}->{$listname};
-  return $listname if $cmd && $cmd->{setting} eq $listname &&
-                      $cmd->{type} == $CONF_TYPE_ADDRLIST;
-  return "ENL_$listname";
-}
-
 sub clone {
   my ($self, $source, $dest) = @_;
 
@@ -5769,9 +5758,6 @@ sub clone {
   }
 
   my %done;
-
-  # drop lists added to $dest after $source was copied (a user's own)
-  delete @{$dest}{grep { /^ENL_/ && !exists $source->{$_} } keys %{$dest}};
 
   # keys that should not be copied in ->clone().
   # bug 4179: include want_rebuild_for_type, so that if a user rule
