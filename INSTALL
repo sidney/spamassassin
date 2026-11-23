@@ -245,12 +245,12 @@ installed:
     Used as a cryptographic hash for some tests and the Bayes subsystem.
     It is also required by the DKIM plugin.
 
-  - HTML::Parser >= 3.43 (from CPAN)
+  - HTML::Parser >= 3.72 (from CPAN)
 
     HTML is used for an ever-increasing amount of email so this dependency
     is unavoidable.  Run "perldoc -q html" for additional information.
 
-  - Net::DNS >= 0.69 (from CPAN)
+  - Net::DNS >= 1.10 (from CPAN)
 
     Used for all DNS-based tests (SBL, XBL, SpamCop, DSBL, etc.),
     perform MX checks, used when manually reporting spam to SpamCop,
@@ -372,7 +372,7 @@ is too low for them to be used.
     IPv6 will not be available.  Some plugins and underlying modules may
     also prefer IO::Socket::IP over IO::Socket::INET6.
 
-  - IO::Socket::SSL (from CPAN)
+  - IO::Socket::SSL >= 1.994 (from CPAN)
 
     If you wish to use SSL encryption to communicate between spamc and spamd
     (the --ssl option to spamd), you need to install this module.  (You will
@@ -398,7 +398,7 @@ is too low for them to be used.
     have these installed; both the basic DBI module and the driver for your
     database (for example DBD::MariaDB, DBD::mysql or DBD::Pg).
 
-  - Archive::Zip
+  - Archive::Zip >= 1.34
 
     Required by the optional OLEVBMacro plugin, and by the optional
     Archive handler (see v403.pre) to open zip attachments.
@@ -475,7 +475,10 @@ would pull in before installing them.
     needed only for HEIF/HEIC images, and without it those are skipped
     while every other image type is still OCR'd.  heif-dec was named
     heif-convert before libheif 1.18; both names are recognised, and the
-    path to either can be set with image_heif_dec_path.
+    path to either can be set with image_heif_dec_path.  HEIC images also
+    need libheif's HEVC decoder, which some distributions do not install
+    by default: on Ubuntu 24.04 install libheif-plugin-libde265, and on
+    Fedora libheif-freeworld (from RPM Fusion).
 
   - pdftotext (from poppler)
 

@@ -674,6 +674,11 @@ foreach my $channel (@channels) {
       # make sure requests spread randomly
       Mail::SpamAssassin::Util::fisher_yates_shuffle(\@mirrors);
       foreach my $mirror (@mirrors) {
+        # only HTTP and HTTPS, as for the mirrors listed in MIRRORED.BY
+        if ($mirror !~ m{^https?://}i) {
+          dbg("channel: skipping non-HTTP MIRRORED.BY URL: $mirror");
+          next;
+        }
         my ($result_fname, $http_ok) =
           http_get($mirror, $UPDDir, $mirby_path, $mirby_force_reload);
         if (!$http_ok) {
@@ -1367,7 +1372,7 @@ sub taint_safe_archive_extract {
 
         # if --allowplugins is not specified, comment out
         # all loadplugin, tryplugin, loadhandler or tryhandler lines (and others
-        # that can load code or name a program to run)
+        # that can load code, name a program to run or read another file)
         # Match a leading "lang xx " which the parser strips.
         if ( !$opt{'allowplugins'} ) {
           $content =~ s{^\s*((?:lang[^\S\n]+\S+[^\S\n]+)?(?:
@@ -1377,12 +1382,14 @@ sub taint_safe_archive_extract {
               tryhandler |
               \S+[-_]modules? |
               \S+[-_]factory |
+              neuralnetwork[-_]data[-_]dir |
               dcc[-_](?:path|options) |
               pyzor[-_](?:path|options) |
               extracttext[-_]external |
               archive[-_]unrar[-_]path |
               pdf[-_]pdftotext[-_]path |
-              image[-_](?:tesseract|heif[-_]dec)[-_]path
+              image[-_](?:tesseract|heif[-_]dec)[-_]path |
+              include
             ))\s}
             {#(commented by sa-update, no --allowplugins switch specified)# $1}gmxi;
         }
@@ -1656,7 +1663,7 @@ sub http_get {
   }
 
   if (defined $ext_prog && $ext_prog eq 'curl') {
-    push(@args, qw(-s -L -O --remote-time -g --max-redirs 2
+    push(@args, qw(-s -L --remote-time -g --max-redirs 2
                    --connect-timeout 30 --max-time 300
                    --fail -o), $out_fname_short);
     push(@args, '-z', $out_fname_short)  if $out_fname_exists && !$force_reload;
@@ -2156,8 +2163,9 @@ B<--channel> and B<--install> switches, e.g.:
 =item B<--allowplugins>
 
 Allow downloaded updates to activate plugins.  The default is not to
-activate plugins; any C<loadplugin>, C<tryplugin>, C<loadhandler> or
-C<tryhandler> lines will be commented in the downloaded update rules files.
+activate plugins; any C<loadplugin>, C<tryplugin>, C<loadhandler>,
+C<tryhandler> or C<include> lines will be commented in the downloaded update
+rules files.
 
 You should never enable this for 3rd party update channels, since plugins
 can execute unrestricted code on your system, even possibly as root! This

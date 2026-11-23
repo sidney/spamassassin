@@ -72,8 +72,8 @@ lib/Mail/SpamAssassin/Handler/Archive.pm
 lib/Mail/SpamAssassin/Handler/HTML.pm
 lib/Mail/SpamAssassin/Handler/ICS.pm
 lib/Mail/SpamAssassin/Handler/Image.pm
-lib/Mail/SpamAssassin/Handler/JavaScript.pm
 lib/Mail/SpamAssassin/Handler/SVG.pm
+lib/Mail/SpamAssassin/Handler/Script.pm
 lib/Mail/SpamAssassin/Locales.pm
 lib/Mail/SpamAssassin/Locker.pm
 lib/Mail/SpamAssassin/Locker/Flock.pm
@@ -437,8 +437,12 @@ t/data/nice/dmarc/noneok.eml
 t/data/nice/dmarc/quarok.eml
 t/data/nice/dmarc/rejectok.eml
 t/data/nice/dmarc/strictrejectok.eml
+t/data/nice/handler_archive_dedup
+t/data/nice/handler_archive_dedup_copy
 t/data/nice/handler_archive_octet
 t/data/nice/handler_archive_rar
+t/data/nice/handler_archive_rar_names
+t/data/nice/handler_archive_rar_unsafe
 t/data/nice/handler_archive_utf16_bom
 t/data/nice/handler_archive_utf16_nobom
 t/data/nice/handler_archive_zip
@@ -464,6 +468,8 @@ t/data/nice/handler_svg_cp1251
 t/data/nice/handler_svg_entity
 t/data/nice/handler_svg_utf8
 t/data/nice/handler_textplain
+t/data/nice/handler_vbscript_alias
+t/data/nice/handler_vbscript_attach
 t/data/nice/mailman_message.txt
 t/data/nice/mime1
 t/data/nice/mime2

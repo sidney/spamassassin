@@ -61,6 +61,7 @@ url_redirector .list-manage.com
 url_redirector .yandex.net
 url_redirector auctiva.com
 url_redirector awin1.com
+url_redirector c.gle
 url_redirector cqbbs.cc
 url_redirector cdn.dragon.cere.network
 url_redirector channelchief.varindia.com
@@ -265,9 +266,11 @@ if can(Mail::SpamAssassin::Plugin::Redirectors::has_url_redirector_path)
     url_redirector_get cse.google.com/url
 
     url_redirector link.mail.beehiiv.com/ls/click
+    url_redirector link.sportere.com/r
     url_redirector linkprotect.cudasvc.com/url
     url_redirector links.notification.intuit.com/ls/click
     url_redirector links.notification.intuit.com/ss/c
+    url_redirector login.microsoftonline.com/common/oauth2/v2.0/authorize
     url_redirector_get link.msgsndr.com/email-tracking
     url_redirector_get reallylong.link/rll
     url_redirector_get securelinks.cloud-security.net/v
@@ -282,7 +285,6 @@ endif
 #
 if can(Mail::SpamAssassin::Plugin::Redirectors::has_url_redirector_selenium_resource)
     url_redirector_selenium .hubspotlinksfree.com/Ctc
-    url_redirector_selenium login.microsoftonline.com/common/oauth2/v2.0/authorize
     url_redirector_selenium login.microsoft.com/common/oauth2/v2.0/authorize
     url_redirector_selenium uselesstools.jonfinger.com/r
 endif
