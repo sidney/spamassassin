@@ -1,0 +1,70 @@
+name: DragonFly spamd_prefork_stress_4.t repeat (temporary)
+
+# Throwaway diagnostic: in the 2026-11-23 DragonFly run the spamd parent ended
+# without a log line part way through t/spamd_prefork_stress_4.t. Repeat that
+# test on this branch's tree and on the rc3 tarball tree (3e1a651f3), and look
+# in the kernel log for processes that ended on a signal. Reverted afterwards.
+
+on:
+    workflow_dispatch:
+    push:
+      branches: [ gha-windows-coverage ]
+      paths: [ '.github/workflows/dragonfly_prefork_repeat_tmp.yml' ]
+
+jobs:
+  repeat:
+    strategy:
+      fail-fast: false
+      matrix:
+        tree: [ head, rc3 ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    name: DragonFly prefork_stress_4 x10, ${{ matrix.tree }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Select the tree
+      run: |
+        mkdir -p .rep
+        if [ "${{ matrix.tree }}" = rc3 ]; then
+          git worktree add -q .rep/tree 3e1a651f3
+          git -C .rep/tree log -1 --format='tree: %h %s'
+        else
+          git log -1 --format='tree: %h %s'
+        fi
+        cat > .rep/test.sh <<'EOF'
+        # Runs as satest: build without SSL, run t/spamd_prefork_stress_4.t ten times
+        PATH=$PATH:/usr/local/bin
+        cd ~/sa || exit 1
+        perl -i.bak -pe 's/^run_(long_tests|spamd_prefork_stress_test)=n/run_$1=y/' t/config.dist
+        (perl Makefile.PL < /dev/null && make) > ../build.log 2>&1 || { echo build-failed; tail -30 ../build.log; exit 1; }
+        fails=0
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+          out=$(perl -T -I. -Iblib/lib -It t/spamd_prefork_stress_4.t 2>&1); rc=$?
+          echo "run $i: exit $rc, $(printf '%s\n' "$out" | grep -c '^not ok') not ok, $(date -u +%T)"
+          if [ $rc -ne 0 ]; then
+            fails=$((fails+1))
+            printf '%s\n' "$out" | grep -E '^not ok|exited with status' | head -8
+          fi
+        done
+        echo "failed runs: $fails of 10"
+        EOF
+
+    - name: DragonFly
+      uses: vmactions/dragonflybsd-vm@v1.3.4
+      with:
+        copyback: false
+        run: |
+          export ASSUME_ALWAYS_YES=yes
+          pkg install -y perl5 p5-Net-DNS p5-HTML-Parser p5-NetAddr-IP p5-Mail-DKIM p5-Archive-Zip p5-DBI p5-DBD-SQLite p5-libwww p5-Digest-SHA1 p5-App-cpanminus > /dev/null 2>&1
+          pw useradd satest -m -s /bin/sh
+          uname -a; perl -v | sed -n 2p; sysctl -n hw.ncpu hw.physmem
+          src=$(pwd); [ -d .rep/tree ] && src=$(pwd)/.rep/tree
+          rm -rf /home/satest/sa; cp -Rp "$src" /home/satest/sa; cp .rep/test.sh /home/satest/test.sh; chown -R satest /home/satest/sa /home/satest/test.sh
+          su -l satest -c 'sh ~/test.sh' || true
+          echo "--- kernel messages about signals"
+          dmesg | grep -i -E 'signal|core|killed|out of swap|pid [0-9]+ \(perl' | tail -20 || true
+          grep -i -E 'signal|core dumped|killed' /var/log/messages | tail -20 || true
