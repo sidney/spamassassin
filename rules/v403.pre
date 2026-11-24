@@ -3,7 +3,7 @@
 # See 'perldoc Mail::SpamAssassin::Conf' for details of what can be
 # tweaked.
 #
-# This file was installed during the installation of SpamAssassin 4.0.3,
+# This file was installed during the installation of SpamAssassin 4.0.0,
 # and contains plugin loading commands for the new plugins added in that
 # release.  It will not be overwritten during future SpamAssassin installs,
 # so you can modify it to enable some disabled-by-default plugins below,
@@ -33,15 +33,14 @@ if can(Mail::SpamAssassin::Conf::feature_handlers)
 loadhandler Mail::SpamAssassin::Handler::HTML
 endif
 
-# Script Handler - analyze script parts (JavaScript and VBScript, e.g. .js
-# and .vbs attachments) and match them with 'script' rules.
+# JavaScript Handler - analyze JavaScript parts and match it with 'script' rules.
 #
 if can(Mail::SpamAssassin::Conf::feature_handlers)
-loadhandler Mail::SpamAssassin::Handler::Script
+loadhandler Mail::SpamAssassin::Handler::JavaScript
 endif
 
 # SVG Handler - analyse image/svg+xml attachments: match SVG text with 'svgtext' rules,
-# and surface embedded script for the Script handler.
+# and surface embedded script for the JavaScript handler.
 #
 if can(Mail::SpamAssassin::Conf::feature_handlers)
 loadhandler Mail::SpamAssassin::Handler::SVG
@@ -81,7 +80,7 @@ if can(Mail::SpamAssassin::Conf::feature_handlers)
 endif
 
 # Archive - open archive attachments and surface the inner files as sub-parts
-# so the other handlers (HTML, Script, PDF, Image) and body rules can inspect
+# so the other handlers (HTML, JavaScript, PDF, Image) and body rules can inspect
 # them.  rar requires the 'unrar' executable (set archive_unrar_path if not on
 # PATH).  Disabled by default; uncomment to enable.
 #

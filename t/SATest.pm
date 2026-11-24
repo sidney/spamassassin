@@ -359,12 +359,7 @@ sub probably_unused_spamd_port {
   }
   for (1..20) {
     $port = 40000 + int(rand(65500-40000));
-    next if (getservbyport($port, "tcp") || grep(/[:.]$port\s/, @nstat));
-    # skip a port held by another socket: listen on it the way spamd will
-    my $class = ($spamdhost =~ /:/) ? 'IO::Socket::INET6' : 'IO::Socket::INET';
-    my $sock = eval { $class->new(LocalAddr => $spamdhost, LocalPort => $port,
-                        Proto => 'tcp', ReuseAddr => 1, Listen => 1) };
-    if ($sock) { close($sock); last; }
+    last unless (getservbyport($port, "tcp") || grep(/[:.]$port\s/, @nstat));
   }
   return $port;
 }

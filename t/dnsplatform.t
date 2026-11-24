@@ -16,9 +16,7 @@ Problems found with network and DNS setup on this system, not SpamAssassin bug:
 
 my $res = Net::DNS::Resolver->new();
 my $reply1 = $res->send("txttcp.spamassassin.org", "TXT", "IN");
-# size() since Net::DNS 1.18, answersize() before
-my $size1 = $reply1 && ($reply1->can('size') ? $reply1->size : $reply1->answersize);
-if ($reply1 && (scalar($reply1->answer) == 17) && ($size1 > 1200)) {
+if ($reply1 && (scalar($reply1->answer) == 17) && ($reply1->size > 1200)) {
   pass('txttcp');
 } else {
   diag($explanation);

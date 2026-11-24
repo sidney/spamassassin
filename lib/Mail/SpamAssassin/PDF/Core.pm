@@ -231,8 +231,7 @@ sub get_token {
                 if (defined($ch2) && $ch2 eq $ch) {
                     return $ch . $ch2;
                 } else {
-                    # at the end of the data nothing was read to step back over
-                    seek($fh, -1, 1) if defined($ch2);
+                    seek($fh, -1, 1);
                     return $ch;
                 }
             }
@@ -329,7 +328,7 @@ sub get_line {
                 $line .= $ch2;
                 last;
             } else {
-                seek($fh, -1, 1) if defined($ch2);
+                seek($fh, -1, 1);
                 return $line;
             }
         }

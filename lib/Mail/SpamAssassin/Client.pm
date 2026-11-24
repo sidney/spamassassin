@@ -603,9 +603,7 @@ sub _filter {
   print $remote "User: $self->{username}$EOL" if defined $self->{username};
   print $remote "$EOL";
   print $remote $msg;
-  # end the request after Content-length bytes, as spamc does: a byte
-  # spamd leaves unread makes its close reset the connection
-  shutdown($remote, 1);
+  print $remote "$EOL";
 
   $! = 0; my $line = <$remote>;
   defined $line || $!==0  or

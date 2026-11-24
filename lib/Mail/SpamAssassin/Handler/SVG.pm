@@ -36,7 +36,7 @@ from HTML body text so the same word (e.g. "docusign") can be scored differently
 in an SVG than in ordinary HTML.
 
 Links found in the SVG are added to the URI detail list (type C<svg>), and any
-embedded JavaScript is surfaced for the script handler -- see L</RETURNS>.
+embedded JavaScript is surfaced for the JavaScript handler -- see L</RETURNS>.
 An SVG whose ratio of text words to graphics elements is high -- a mostly-text
 "image" -- is flagged via the C<check_svg_text_ratio()> eval rule (see
 L</EVAL RULES>).
@@ -45,8 +45,8 @@ L</EVAL RULES>).
 
 The handler returns any embedded JavaScript found in the SVG as a single
 C<< { type => 'text/javascript', data => $bytes } >> sub-part, which the handler
-framework dispatches to the script handler
-(L<Mail::SpamAssassin::Handler::Script>).  The script bodies of C<< <script> >>
+framework dispatches to the JavaScript handler
+(L<Mail::SpamAssassin::Handler::JavaScript>).  The script bodies of C<< <script> >>
 elements, C<javascript:> URIs, and C<on*> event-handler attributes are joined
 into that one part.  When the SVG contains no script, the handler returns an
 empty list.
@@ -80,13 +80,10 @@ use re 'taint';
 
 use HTML::Parser ();
 use Mail::SpamAssassin::Handler;
-use Mail::SpamAssassin::Constants qw(RULENAME_RE IS_RULENAME);
 use Mail::SpamAssassin::Logger qw(dbg info would_log);
 use Mail::SpamAssassin::Util qw(compile_regexp untaint_var);
 
 our @ISA = qw(Mail::SpamAssassin::Handler);
-
-my $RULENAME_RE = RULENAME_RE;
 
 sub log_dbg { Mail::SpamAssassin::Logger::dbg ("svg: @_"); }
 
@@ -125,7 +122,7 @@ sub set_config {
       code => sub {
         my ($self, $key, $value, $line) = @_;
 
-        if ($value !~ /^(${RULENAME_RE})\s+(.+)$/) {
+        if ($value !~ /^(\S+)\s+(.+)$/) {
           return $Mail::SpamAssassin::Conf::INVALID_VALUE;
         }
         my ($name, $pattern) = ($1, $2);
@@ -294,9 +291,6 @@ sub finish_parsing_end {
 
   my $would_log = would_log('dbg');
 
-  # Rule names are handed to the generated code as data (@rule_names,
-  # indexed by $loopid) and never pasted into its source text.
-  my @rule_names;
   my $eval = <<'EOF';
 package Mail::SpamAssassin::Handler::SVG;
 
@@ -312,20 +306,13 @@ EOF
 
   my $loopid = 0;
   foreach my $name (keys %{$conf->{svgtext_rules}}) {
-    # defence in depth: only valid rule names, even though the name is
-    # passed to the generated code as data
-    if ($name !~ IS_RULENAME) {
-      dbg("svg: skipping svgtext rule with invalid name: $name");
-      next;
-    }
     $loopid++;
-    $rule_names[$loopid] = $name;
     my $tflags = $conf->{tflags}->{$name} || '';
 
     my ($dbg_running_rule, $dbg_ran_rule) = ('', '');
     if ($would_log) {
-      $dbg_running_rule = qq(dbg("running rule \$rule_names[$loopid]"););
-      $dbg_ran_rule = qq(dbg(qq(ran rule \$rule_names[$loopid] ======> got hit "\$match")););
+      $dbg_running_rule = qq(dbg("running rule $name"););
+      $dbg_ran_rule = qq(dbg(qq(ran rule $name ======> got hit "\$match")););
     }
 
     my $ifwhile   = 'if';
@@ -346,13 +333,13 @@ EOF
 
     $eval .= <<"EOF";
     $dbg_running_rule
-    \$test_qr = \$pms->{conf}->{svgtext_rules}->{\$rule_names[$loopid]};
+    \$test_qr = \$pms->{conf}->{svgtext_rules}->{$name};
     $init_hits
     rule_$loopid: foreach my \$line (\@\$svg_text) {
         $ifwhile ( \$line =~ /\$test_qr/$modifiers ) {
             my \$match = defined \${^MATCH} ? \${^MATCH} : '<negative match>';
             $dbg_ran_rule
-            \$pms->got_hit(\$rule_names[$loopid], 'SVG: ', 'ruletype' => 'rawbody');
+            \$pms->got_hit('$name', 'SVG: ', 'ruletype' => 'rawbody');
             $last
         }
     }

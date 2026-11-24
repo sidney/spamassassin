@@ -78,7 +78,6 @@ use Fcntl;
 use Errno qw(ENOENT EACCES EEXIST);
 use POSIX qw(:sys_wait_h WIFEXITED WIFSIGNALED WIFSTOPPED WEXITSTATUS
              WTERMSIG WSTOPSIG);
-use Mail::SpamAssassin::Constants qw(MAX_URI_NESTING);
 
 ###########################################################################
 
@@ -1589,17 +1588,14 @@ sub uri_list_canonicalize {
   my $redirector_patterns = shift;
 
   my @uris;
-  my ($rb, $nesting_cut);
+  my $rb;
   if (ref($_[0]) eq 'ARRAY') {
     # New call style:
     # - reference to array of redirector_patterns
     # - reference to array of URIs
     # - reference to $self->{main}->{registryboundaries}
-    # - optional reference to a scalar, set to 1 if nesting went
-    #   deeper than MAX_URI_NESTING levels
     @uris = @{$_[0]};
     $rb = $_[1];
-    $nesting_cut = $_[2];
   } else {
     # Old call style:
     # - reference to array of redirector_patterns
@@ -1609,17 +1605,7 @@ sub uri_list_canonicalize {
 
   # make sure we catch bad encoding tricks
   my @nuris;
-  # nested URIs are pushed onto @uris below, so the loop visits them one
-  # level after another; stop after MAX_URI_NESTING levels
-  my ($n, $level, $level_end) = (0, 0, scalar @uris);
   for my $uri (@uris) {
-    if ($n++ == $level_end) {
-      if (++$level > MAX_URI_NESTING) {
-        $$nesting_cut = 1 if ref $nesting_cut;
-        last;
-      }
-      $level_end = @uris;
-    }
     # sometimes we catch URLs on multiple lines
     $uri =~ s/\n//g;
 
@@ -2017,19 +2003,15 @@ sub helper_app_pipe_open {
 sub helper_app_pipe_open_windows {
   my ($fh, $stdinfile, $duperr2out, @cmdline) = @_;
 
-  # use a traditional open(FOO, "cmd |"), quoting the program and any
-  # argument with whitespace so that each element stays one argument
-  for my $i (0 .. $#cmdline) {
-    $cmdline[$i] = '"'.$cmdline[$i].'"'
-      if ($i == 0 || $cmdline[$i] =~ /\s/) && $cmdline[$i] !~ /^\".*\"$/;
-  }
+  # use a traditional open(FOO, "cmd |")
+  $cmdline[0] = '"'.$cmdline[0].'"' if ($cmdline[0] !~ /^\".*\"$/);
   my $cmd = join(' ', @cmdline);
   if ($stdinfile) { $cmd .= qq/ < "$stdinfile"/; }
   if ($duperr2out) {
     # Support custom file target for STDERR, if ">file" specified
     # Caller must make sure the destination is safe and untainted
     if ($duperr2out =~ /^>/) {
-      $cmd .= ' 2>"'.substr($duperr2out, 1).'"';
+      $cmd .= " 2$duperr2out";
     } else {
       $cmd .= " 2>&1";
     }

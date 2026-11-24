@@ -518,7 +518,7 @@ sub _check_arc_valid_signature {
       }
 
       my %arc;
-      $arc{prefix} = lc $signature->prefix;  # field names are case-insensitive
+      $arc{prefix} = $signature->prefix;
       $arc{valid} = $valid;
       push(@arc_sig, \%arc);
 
@@ -543,12 +543,12 @@ sub _check_arc_valid_signature {
       my $arc_message_found = 0;
       # All ARC-Seals signatures and the most recent ARC-Message-Signature must be valid
       foreach my $arc ( @arc_sig ) {
-        if ($arc->{prefix} eq 'arc-message-signature:') {
+        if ($arc->{prefix} eq 'ARC-Message-Signature:') {
           next if $arc_message_found;
           $arc_message_valid = 1 if $arc->{valid};
           $arc_message_found = 1;
         }
-        if ($arc->{prefix} eq 'arc-seal:') {
+        if ($arc->{prefix} eq 'ARC-Seal:') {
           if ($arc->{valid}) {
             $arc_seal_valid = 1;
           } else {
@@ -583,25 +583,19 @@ sub _parse_trusted_aar {
   my $trusted = $pms->{conf}->{arc_trusted_sealers};
   return if !$trusted || !%$trusted;
 
-  # only a chain that Mail::DKIM verified
   my $verifier = $pms->{arc_verifier};
-  return if !ref($verifier) || ($verifier->result || '') ne 'pass';
-
-  # its verified seals, indexed by ARC instance number
-  my $seals = [];
-  foreach my $seal (@{$pms->{arc_signatures}}) {
-    $seals->[$seal->instance] = $seal
-      if $seal->isa('Mail::DKIM::ARC::Seal') && ($seal->result || '') eq 'pass';
-  }
+  return if !ref($verifier) || !defined $verifier->{seals};
 
   # Walk the chain from newest to oldest.  Trust the contiguous run of
   # trusted sealers at the top of the chain; as soon as we hit an
   # untrusted hop, anything older than it cannot be trusted either.
+  # $verifier->{seals} is indexed by ARC instance number.
+  my $seals = $verifier->{seals};
   my %trusted_indices;
   for (my $i = $#$seals; $i >= 1; $i--) {
     my $seal = $seals->[$i];
     next if !defined $seal;
-    my $d = $seal->domain;
+    my $d = $seal->{tags_by_name}{d}{value};
     next if !defined $d;
     $d = lc $d;
     if ($trusted->{$d}) {
@@ -623,20 +617,15 @@ sub _parse_trusted_aar_from_headers {
   my $trusted = $pms->{conf}->{arc_trusted_sealers};
   return if !$trusted || !%$trusted;
 
-  # Collect ARC-Seal domains by instance index, from the i= and d= tags of
-  # each seal's tag list; an instance with more than one seal gets none
+  # Collect ARC-Seal domains by instance index
   my %seal_domain;
-  my @seals = _get_arc_header($pms, 'ARC-Seal');
+  my @seals = $pms->{msg}->get_pristine_header('ARC-Seal');
   foreach my $seal (@seals) {
-    my %tag;
-    foreach my $spec (split(/;/, $seal)) {
-      next if $spec !~ /^\s*(\w+)\s*=\s*(.*?)\s*\z/s;
-      $tag{$1} = exists $tag{$1} ? undef : $2;  # a repeated tag is not valid
-    }
-    my ($i, $d) = ($tag{i}, $tag{d});
-    next if !defined $d || !defined $i || $i !~ /^\d+\z/;
-    $i += 0;
-    $seal_domain{$i} = exists $seal_domain{$i} ? '' : lc $d;
+    chomp $seal;
+    my ($i) = $seal =~ /\bi\s*=\s*(\d+)/;
+    my ($d) = $seal =~ /\bd\s*=\s*([^\s;]+)/;
+    next if !defined $d || !defined $i;
+    $seal_domain{$i} = lc $d;
   }
 
   # Walk the chain from newest to oldest.  Trust the contiguous run of
@@ -662,14 +651,8 @@ sub _parse_aar_by_trusted_indices {
   my ($self, $pms, $trusted_indices) = @_;
 
   # Parse ARC-Authentication-Results headers from trusted sealers
-  my @aar = _get_arc_header($pms, 'ARC-Authentication-Results');
+  my @aar = $pms->{msg}->get_pristine_header('ARC-Authentication-Results');
   return if !@aar;
-
-  # an instance with more than one AAR gets none
-  my %aar_count;
-  foreach my $hdr (@aar) {
-    $aar_count{$1}++ if $hdr =~ /^\s*i=(\d+)\s*;/;
-  }
 
   my @arc_auth_results;
   foreach my $hdr (@aar) {
@@ -691,11 +674,6 @@ sub _parse_aar_by_trusted_indices {
 
     if (!$trusted_indices->{$arc_index}) {
       dbg("arc: AAR i=%s not from trusted sealer, skipping", $arc_index);
-      next;
-    }
-
-    if ($aar_count{$arc_index} > 1) {
-      dbg("arc: more than one AAR i=%s, skipping", $arc_index);
       next;
     }
 
@@ -726,14 +704,6 @@ sub _parse_aar_by_trusted_indices {
                         @arc_auth_results;
     $pms->{arc_auth_results} = \@arc_auth_results;
   }
-}
-
-# The values of the header fields named $name, in any case and with no
-# blank before the colon: the form in which an ARC seal covers them.
-sub _get_arc_header {
-  my ($pms, $name) = @_;
-  return $pms->{msg}->get_pristine_header() =~
-           /^\Q$name\E:[ \t]*(.*?\n(?![ \t]))/smgi;
 }
 
 1;
