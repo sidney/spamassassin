@@ -1,0 +1,132 @@
+name: OpenBSD make test with a per-file watchdog (temporary)
+
+# Throwaway diagnostic: in the 2026-11-23 OpenBSD run on this branch,
+# t/spamd_prefork_stress_3.t did not finish within a full make test, though
+# 20 runs of it alone passed (openbsd_prefork_repeat_tmp.yml). Full make test
+# twice on this tree and once with Timeout.pm from before r1940713. A watchdog
+# records process states, spamd's log and a ktrace when a test file passes
+# 900 s, then ends that file so make test goes on. Reverted afterwards.
+
+on:
+    workflow_dispatch:
+    push:
+      branches: [ gha-windows-coverage ]
+      paths: [ '.github/workflows/openbsd_full_watchdog_tmp.yml' ]
+
+jobs:
+  full:
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [ head-1, head-2, pre-r1940713 ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    name: OpenBSD make test, ${{ matrix.leg }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Select Timeout.pm and write the scripts
+      run: |
+        mkdir -p .wd
+        if [ "${{ matrix.leg }}" = pre-r1940713 ]; then
+          git show 1f9ccaab3:lib/Mail/SpamAssassin/Timeout.pm > lib/Mail/SpamAssassin/Timeout.pm
+        fi
+        git diff --stat
+        git log -1 --format='tree: %h %s'
+        cat > .wd/watchdog.sh <<'EOF'
+        # Runs as satest beside make test: a test file running 900 s or more gets
+        # diagnostics (also in t/log/watchdog-diag.txt), then is ended.
+        cd ~/sa || exit 1
+        : > ../seen
+        # satest's processes matching $1, without make test's harness (its command line
+        # holds every t/*.t name) and these scripts
+        others() {
+          for q in $(pgrep -U satest -f "$1"); do
+            case "$(ps -o command= -p $q)" in *test_harness*|*watchdog.sh*|*test.sh*) ;; *) echo $q ;; esac
+          done
+        }
+        diag() {
+          echo "=== watchdog: pid $1 has run 900 s: $(ps -o command= -p $1)"
+          ps -axww -o pid,ppid,pgid,stat,wchan,etime,command | grep -E 'spamd|spamc|perl|PID' | grep -v -e grep -e test_harness
+          for f in $(ls -t t/log/*/d.*/spamd.err.*.timestamped 2>/dev/null | head -1); do
+            echo "--- last 60 lines of $f"; tail -60 "$f"
+          done
+          echo "--- ktrace, 20 s"
+          for p in $1 $(others 'spamd|spamc'); do ktrace -f /tmp/kt.$p -p $p 2>/dev/null; done
+          sleep 20; ktrace -C
+          for f in /tmp/kt.*; do [ -f "$f" ] && { echo "== $f"; kdump -f "$f" | tail -30; rm -f "$f"; }; done
+        }
+        while [ ! -f ../done ]; do
+          now=$(date +%s)
+          for p in $(others 't/[A-Za-z0-9_]+\.t$'); do
+            # pid plus file name, since OpenBSD reuses pids at random
+            key="$p:$(ps -o command= -p $p | awk '{print $NF}')"
+            first=$(grep -F "$key " ../seen | head -1 | cut -d' ' -f2)
+            if [ -z "$first" ]; then echo "$key $now" >> ../seen; continue; fi
+            if [ "$first" != ended ] && [ $((now - first)) -ge 900 ] && ! grep -qF "$key ended" ../seen; then
+              echo "$key ended" >> ../seen
+              diag $p 2>&1 | tee -a t/log/watchdog-diag.txt
+              case "$(ps -o command= -p $p)" in
+                *spamd*|*spamc*) kill $(others 'spamd|spamc') 2>/dev/null ;;
+                *) kill $p ;;
+              esac
+              sleep 3; kill -9 $p 2>/dev/null
+            fi
+          done
+          sleep 15
+        done
+        EOF
+        cat > .wd/test.sh <<'EOF'
+        # Runs as satest: build, then make test with the watchdog beside it
+        PATH=$PATH:/usr/local/bin
+        cd ~/sa || exit 1
+        perl -i.bak -pe 's/^run_(long_tests|net_tests|spamd_prefork_stress_test)=n/run_$1=y/' t/config.dist
+        (perl Makefile.PL ENABLE_SSL=yes < /dev/null && make) > ../build.log 2>&1 || { echo build-failed; tail -40 ../build.log; exit 1; }
+        rm -f ../done; mkdir -p t/log
+        sh ~/watchdog.sh &
+        date -u +'start %FT%TZ'
+        make test; rc=$?
+        date -u +'end %FT%TZ'
+        touch ../done; wait
+        exit $rc
+        EOF
+
+    - name: OpenBSD
+      uses: vmactions/openbsd-vm@v1.4.9
+      with:
+        copyback: true
+        run: |
+          missing=""
+          for p in p5-Net-DNS p5-HTML-Parser p5-NetAddr-IP p5-Mail-DKIM p5-IO-Socket-SSL \
+            p5-IO-Socket-INET6 p5-Archive-Zip p5-DBI p5-DBD-SQLite p5-Mail-SPF p5-BSD-Resource \
+            p5-libwww p5-LWP-Protocol-https p5-HTTP-Daemon p5-Text-Diff p5-Net-CIDR-Lite \
+            p5-Encode-Detect p5-Email-Address-XS p5-Digest-SHA1 p5-Net-Patricia p5-Test-Pod \
+            p5-Devel-Cycle p5-IO-String p5-Geography-Countries p5-App-cpanminus re2c poppler-utils; do
+            pkg_add -I "$p" > /dev/null 2>&1 || missing="$missing $p"
+          done
+          echo "packages not installed:$missing"
+          useradd -m -s /bin/sh satest
+          uname -a; perl -v | sed -n 2p; sysctl -n hw.ncpu hw.physmem
+          command -v cpanm && cpanm -n --installdeps . > /root/cpanm.log 2>&1 || { echo "cpanm installdeps failed"; tail -40 /root/cpanm.log; }
+          rm -rf /home/satest/sa; cp -Rp "$(pwd)" /home/satest/sa
+          cp .wd/test.sh .wd/watchdog.sh /home/satest/
+          chown -R satest /home/satest/sa /home/satest/test.sh /home/satest/watchdog.sh
+          rc=0; su -l satest -c 'sh ~/test.sh' || rc=$?; echo $rc > .wd/rc
+          tar cf .wd/t-log.tar -C /home/satest/sa/t log 2>/dev/null || true
+
+    - name: Publish t/log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: openbsd_${{ matrix.leg }}_t_log
+        path: .wd/t-log.tar
+        if-no-files-found: ignore
+
+    - name: Result of make test
+      run: |
+        rc=$(cat .wd/rc 2>/dev/null || echo missing)
+        echo "make test exit: $rc"
+        [ "$rc" = 0 ]
