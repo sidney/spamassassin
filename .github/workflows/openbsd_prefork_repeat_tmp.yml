@@ -1,0 +1,105 @@
+name: OpenBSD spamd_prefork_stress_3.t repeat (temporary)
+
+# Throwaway diagnostic: in the 2026-11-23 OpenBSD run on this branch,
+# t/spamd_prefork_stress_3.t ran for nearly three hours without finishing (it
+# takes about three minutes there). Repeat that test on this branch's tree and
+# with Timeout.pm from before r1940713 (1f9ccaab3). A watchdog records process
+# states, spamd's log and a ktrace of the spamd and spamc processes when a run
+# passes 600 s, then ends that run. Reverted afterwards.
+
+on:
+    workflow_dispatch:
+    push:
+      branches: [ gha-windows-coverage ]
+      paths: [ '.github/workflows/openbsd_prefork_repeat_tmp.yml' ]
+
+jobs:
+  repeat:
+    strategy:
+      fail-fast: false
+      matrix:
+        timeout_pm: [ head, pre-r1940713 ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    name: OpenBSD prefork_stress_3 x10, Timeout.pm ${{ matrix.timeout_pm }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Select Timeout.pm and write the test script
+      run: |
+        mkdir -p .rep
+        if [ "${{ matrix.timeout_pm }}" = pre-r1940713 ]; then
+          git show 1f9ccaab3:lib/Mail/SpamAssassin/Timeout.pm > lib/Mail/SpamAssassin/Timeout.pm
+        fi
+        git diff --stat
+        git log -1 --format='tree: %h %s'
+        cat > .rep/test.sh <<'EOF'
+        # Runs as satest: build, then t/spamd_prefork_stress_3.t ten times under a watchdog
+        PATH=$PATH:/usr/local/bin
+        cd ~/sa || exit 1
+        perl -i.bak -pe 's/^run_(long_tests|spamd_prefork_stress_test)=n/run_$1=y/' t/config.dist
+        # keep every run's workdir, for spamd's -D log
+        perl -i -pe 's/^(\s*)\$keep_workdir = 0;/$1\$keep_workdir = 1;/' t/SATest.pm
+        grep -c 'keep_workdir = 1;' t/SATest.pm
+        (perl Makefile.PL ENABLE_SSL=yes < /dev/null && make) > ../build.log 2>&1 || { echo build-failed; tail -30 ../build.log; exit 1; }
+        diag() {
+          echo "=== run $1: still running after 600 s"
+          ps -axww -o pid,ppid,pgid,stat,wchan,etime,command | grep -E 'spamd|spamc|PID' | grep -v grep
+          wd=$(ls -td t/log/spamd_prefork_stress_3.* | head -1)
+          for f in "$wd"/d.*/spamd.err.*; do
+            [ -f "$f" ] && { echo "--- last 60 lines of $f"; tail -60 "$f"; }
+          done
+          echo "--- ktrace, 20 s"
+          for p in $(pgrep -U satest -f 'spamd|spamc'); do ktrace -f /tmp/kt.$p -p $p 2>/dev/null; done
+          sleep 20; ktrace -C
+          for f in /tmp/kt.*; do [ -f "$f" ] && { echo "== $f"; kdump -f "$f" | tail -30; rm -f "$f"; }; done
+        }
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+          perl -T -I. -Iblib/lib -It t/spamd_prefork_stress_3.t > ../out.$i 2>&1 &
+          tp=$!; n=0; killed=""
+          while kill -0 $tp 2>/dev/null; do
+            sleep 5; n=$((n+5))
+            if [ $n -ge 600 ]; then
+              diag $i; killed=" (ended by the watchdog)"
+              pkill -U satest -f 'spamd|spamc'; sleep 3; pkill -9 -U satest -f 'spamd|spamc'
+              break
+            fi
+          done
+          wait $tp; rc=$?
+          wd=$(ls -td t/log/spamd_prefork_stress_3.* | head -1)
+          cp ../out.$i "$wd/" 2>/dev/null
+          echo "run $i: exit $rc$killed after ${n} s, $(grep -c '^not ok' ../out.$i) not ok, $(date -u +%T)"
+          echo "  spamd log: $(cat "$wd"/d.*/spamd.err.* 2>/dev/null | grep -c 'ignoring an alarm with no handler') 'ignoring an alarm with no handler', $(cat "$wd"/d.*/spamd.err.* 2>/dev/null | grep -c 'select timed out (via alarm)') 'select timed out (via alarm)'"
+          grep -E '^not ok' ../out.$i | head -5
+        done
+        EOF
+
+    - name: OpenBSD
+      uses: vmactions/openbsd-vm@v1.4.9
+      with:
+        copyback: true
+        run: |
+          for p in p5-Net-DNS p5-HTML-Parser p5-NetAddr-IP p5-Mail-DKIM p5-IO-Socket-SSL \
+            p5-IO-Socket-INET6 p5-Archive-Zip p5-DBI p5-DBD-SQLite p5-Mail-SPF p5-BSD-Resource \
+            p5-libwww p5-LWP-Protocol-https p5-HTTP-Daemon p5-Text-Diff p5-Net-CIDR-Lite \
+            p5-Encode-Detect p5-Email-Address-XS p5-Digest-SHA1 p5-Net-Patricia p5-Test-Pod \
+            p5-Devel-Cycle p5-IO-String p5-Geography-Countries p5-App-cpanminus re2c poppler-utils; do
+            pkg_add -I "$p" > /dev/null 2>&1 || echo "not installed: $p"
+          done
+          useradd -m -s /bin/sh satest
+          uname -a; perl -v | sed -n 2p; sysctl -n hw.ncpu hw.physmem
+          rm -rf /home/satest/sa; cp -Rp "$(pwd)" /home/satest/sa; cp .rep/test.sh /home/satest/test.sh
+          chown -R satest /home/satest/sa /home/satest/test.sh
+          su -l satest -c 'sh ~/test.sh' || true
+          tar cf .rep/t-log.tar -C /home/satest/sa/t log 2>/dev/null || true
+
+    - name: Publish t/log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: openbsd_${{ matrix.timeout_pm }}_t_log
+        path: .rep/t-log.tar
+        if-no-files-found: ignore
